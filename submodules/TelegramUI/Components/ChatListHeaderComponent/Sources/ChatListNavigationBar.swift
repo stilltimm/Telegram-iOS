@@ -171,7 +171,8 @@ public final class ChatListNavigationBar: Component {
     public static func minArchiveCoverThreshold(
         statusBarHeight: CGFloat,
         hasTabs: Bool,
-        hasStories: Bool
+        hasStories: Bool,
+        accessoryHeight: CGFloat?
     ) -> CGFloat {
         var result = statusBarHeight + headerTopOffset + headerHeight + searchScrollHeight
         if hasTabs {
@@ -179,6 +180,9 @@ public final class ChatListNavigationBar: Component {
         }
         if hasStories {
             result += storiesScrollHeight
+        }
+        if let accessoryHeight {
+            result += accessoryHeight
         }
         return result
     }
@@ -314,7 +318,10 @@ public final class ChatListNavigationBar: Component {
             let minArchiveCoverThreshold = ChatListNavigationBar.minArchiveCoverThreshold(
                 statusBarHeight: component.statusBarHeight,
                 hasTabs: component.tabsNode != nil,
-                hasStories: component.storySubscriptions?.items.isEmpty == false
+                hasStories: component.storySubscriptions?.items.isEmpty == false,
+                accessoryHeight: component.accessoryPanelContainer != nil
+                    ? component.accessoryPanelContainerHeight
+                    : nil
             )
             let archiveCoverScrollHeight = ChatListNavigationBar.archiveCoverScrollHeight
 
@@ -330,9 +337,11 @@ public final class ChatListNavigationBar: Component {
                 let rubberBandAddition = rubberBandAmplitude * log10(visibleSize.height / minArchiveCoverThreshold)
                 clampedArchiveCoverHeight -= rubberBandAddition / 2
 
-                let maxArchiveCoverThreshold = minArchiveCoverThreshold + archiveCoverScrollHeight
-                if visibleSize.height > maxArchiveCoverThreshold + rubberBandAddition / 2 {
-                    clampedArchiveCoverHeight = ChatListNavigationBar.archiveCoverScrollHeight
+                var maxArchiveCoverThreshold = minArchiveCoverThreshold + archiveCoverScrollHeight
+                maxArchiveCoverThreshold += rubberBandAddition / 2
+                if visibleSize.height > maxArchiveCoverThreshold {
+                    let rubberBandAddition2 = rubberBandAmplitude * log10(visibleSize.height / maxArchiveCoverThreshold)
+                    clampedArchiveCoverHeight = ChatListNavigationBar.archiveCoverScrollHeight + rubberBandAddition2
                 }
                 archiveCoverHeight = clampedArchiveCoverHeight
                 visibleSize.height -= clampedArchiveCoverHeight
@@ -857,7 +866,10 @@ public final class ChatListNavigationBar: Component {
                 }
             }
             
-            return CGSize(width: size.width, height: size.height - heightSubtraction)
+            let updatedSize = CGSize(width: size.width, height: size.height - heightSubtraction)
+            self.currentLayout = CurrentLayout(size: updatedSize)
+
+            return updatedSize
         }
     }
     
