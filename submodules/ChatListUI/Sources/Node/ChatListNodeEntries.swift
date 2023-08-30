@@ -568,7 +568,20 @@ struct ChatListContactPeer {
     }
 }
 
-func chatListNodeEntriesForView(view: EngineChatList, state: ChatListNodeState, savedMessagesPeer: EnginePeer?, foundPeers: [(EnginePeer, EnginePeer?)], hideArchivedFolderByDefault: Bool, displayArchiveIntro: Bool, notice: ChatListNotice?, mode: ChatListNodeMode, chatListLocation: ChatListControllerLocation, contacts: [ChatListContactPeer], accountPeerId: EnginePeer.Id, isMainTab: Bool) -> (entries: [ChatListNodeEntry], loading: Bool) {
+func chatListNodeEntriesForView(
+    view: EngineChatList,
+    state: ChatListNodeState,
+    savedMessagesPeer: EnginePeer?,
+    foundPeers: [(EnginePeer, EnginePeer?)],
+    hideArchivedFolderByDefault: Bool,
+    displayArchiveIntro: Bool,
+    notice: ChatListNotice?,
+    mode: ChatListNodeMode,
+    chatListLocation: ChatListControllerLocation,
+    contacts: [ChatListContactPeer],
+    accountPeerId: EnginePeer.Id,
+    isMainTab: Bool
+) -> (entries: [ChatListNodeEntry], loading: Bool) {
     var groupItems = view.groupItems
     if isMainTab && state.archiveStoryState != nil && groupItems.isEmpty {
         groupItems.append(EngineChatList.GroupItem(

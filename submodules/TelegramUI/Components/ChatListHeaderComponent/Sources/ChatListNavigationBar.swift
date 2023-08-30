@@ -35,6 +35,8 @@ public final class ChatListNavigationBar: Component {
     public let uploadProgress: Float?
     public let tabsNode: ASDisplayNode?
     public let tabsNodeIsSearch: Bool
+    public let isMainTab: Bool
+    public let archiveCoverNode: ASDisplayNode?
     public let accessoryPanelContainer: ASDisplayNode?
     public let accessoryPanelContainerHeight: CGFloat
     public let activateSearch: (NavigationBarSearchContentNode) -> Void
@@ -56,6 +58,8 @@ public final class ChatListNavigationBar: Component {
         uploadProgress: Float?,
         tabsNode: ASDisplayNode?,
         tabsNodeIsSearch: Bool,
+        isMainTab: Bool,
+        archiveCoverNode: ASDisplayNode?,
         accessoryPanelContainer: ASDisplayNode?,
         accessoryPanelContainerHeight: CGFloat,
         activateSearch: @escaping (NavigationBarSearchContentNode) -> Void,
@@ -76,6 +80,8 @@ public final class ChatListNavigationBar: Component {
         self.uploadProgress = uploadProgress
         self.tabsNode = tabsNode
         self.tabsNodeIsSearch = tabsNodeIsSearch
+        self.isMainTab = isMainTab
+        self.archiveCoverNode = archiveCoverNode
         self.accessoryPanelContainer = accessoryPanelContainer
         self.accessoryPanelContainerHeight = accessoryPanelContainerHeight
         self.activateSearch = activateSearch
@@ -126,6 +132,12 @@ public final class ChatListNavigationBar: Component {
         if lhs.tabsNodeIsSearch != rhs.tabsNodeIsSearch {
             return false
         }
+        if lhs.isMainTab != rhs.isMainTab {
+            return false
+        }
+        if lhs.archiveCoverNode != rhs.archiveCoverNode {
+            return false
+        }
         if lhs.accessoryPanelContainer !== rhs.accessoryPanelContainer {
             return false
         }
@@ -142,11 +154,34 @@ public final class ChatListNavigationBar: Component {
             self.size = size
         }
     }
-    
+
+    public static let headerTopOffset: CGFloat = 5.0
+    public static let headerHeight: CGFloat = 44.0
+    public static let searchHorizontalInset: CGFloat = 6.0
     public static let searchScrollHeight: CGFloat = 52.0
+    public static let tabsHeight: CGFloat = 46.0
     public static let storiesScrollHeight: CGFloat = {
         return 83.0
     }()
+    public static let archiveCoverScrollHeight: CGFloat = {
+        // TODO: Use properly calculated chat list item height
+        return 77.0
+    }()
+    public static let rubberBandAmplitude: CGFloat = 100
+    public static func minArchiveCoverThreshold(
+        statusBarHeight: CGFloat,
+        hasTabs: Bool,
+        hasStories: Bool
+    ) -> CGFloat {
+        var result = statusBarHeight + headerTopOffset + headerHeight + searchScrollHeight
+        if hasTabs {
+            result += tabsHeight
+        }
+        if hasStories {
+            result += storiesScrollHeight
+        }
+        return result
+    }
 
     public final class View: UIView {
         private let backgroundView: BlurredBackgroundView
@@ -174,6 +209,7 @@ public final class ChatListNavigationBar: Component {
         
         private var tabsNode: ASDisplayNode?
         private var tabsNodeIsSearch: Bool = false
+        private var archiveCoverNode: ASDisplayNode?
         private weak var disappearingTabsView: UIView?
         private var disappearingTabsViewSearch: Bool = false
         
@@ -215,11 +251,20 @@ public final class ChatListNavigationBar: Component {
         
         public func applyCurrentScroll(transition: Transition) {
             if let rawScrollOffset = self.rawScrollOffset, self.hasDeferredScrollOffset {
-                self.applyScroll(offset: rawScrollOffset, allowAvatarsExpansion: self.currentAllowAvatarsExpansion, transition: transition)
+                let _ = self.applyScroll(
+                    offset: rawScrollOffset,
+                    allowAvatarsExpansion: self.currentAllowAvatarsExpansion,
+                    transition: transition
+                )
             }
         }
         
-        public func applyScroll(offset: CGFloat, allowAvatarsExpansion: Bool, forceUpdate: Bool = false, transition: Transition) {
+        public func applyScroll(
+            offset: CGFloat,
+            allowAvatarsExpansion: Bool,
+            forceUpdate: Bool = false,
+            transition: Transition
+        ) -> CGFloat? {
             let transition = transition
             
             self.rawScrollOffset = offset
@@ -228,40 +273,105 @@ public final class ChatListNavigationBar: Component {
             
             if self.deferScrollApplication && !forceUpdate {
                 self.hasDeferredScrollOffset = true
-                return
+                return nil
             }
             
             guard let component = self.component, let currentLayout = self.currentLayout else {
-                return
+                return nil
             }
             
             let themeUpdated = component.theme !== self.scrollTheme || component.strings !== self.scrollStrings
             
             self.scrollTheme = component.theme
             self.scrollStrings = component.strings
+
+            // MARK: - Offset & Visible Height
             
             let searchOffsetDistance: CGFloat = ChatListNavigationBar.searchScrollHeight
             
             let minContentOffset: CGFloat = ChatListNavigationBar.searchScrollHeight
             
             let clippedScrollOffset = min(minContentOffset, offset)
-            if self.clippedScrollOffset == clippedScrollOffset && !self.hasDeferredScrollOffset && !forceUpdate && !allowAvatarsExpansionUpdated {
-                return
+
+            if
+                self.clippedScrollOffset == clippedScrollOffset
+                    && !self.hasDeferredScrollOffset
+                    && !forceUpdate
+                    && !allowAvatarsExpansionUpdated
+            {
+                return nil
             }
             self.hasDeferredScrollOffset = false
             self.clippedScrollOffset = clippedScrollOffset
             
-            let visibleSize = CGSize(width: currentLayout.size.width, height: max(0.0, currentLayout.size.height - clippedScrollOffset))
+            var visibleSize = CGSize(
+                width: currentLayout.size.width,
+                height: max(0.0, currentLayout.size.height - clippedScrollOffset)
+            )
+
+            // MARK: - Archive cover height
+
+            let minArchiveCoverThreshold = ChatListNavigationBar.minArchiveCoverThreshold(
+                statusBarHeight: component.statusBarHeight,
+                hasTabs: component.tabsNode != nil,
+                hasStories: component.storySubscriptions?.items.isEmpty == false
+            )
+            let archiveCoverScrollHeight = ChatListNavigationBar.archiveCoverScrollHeight
+
+            var archiveCoverHeight: CGFloat = 0
+            if
+                component.isMainTab,
+                !component.isSearchActive,
+                component.archiveCoverNode != nil,
+                visibleSize.height > minArchiveCoverThreshold
+            {
+                var clampedArchiveCoverHeight = visibleSize.height - minArchiveCoverThreshold
+                let rubberBandAmplitude = ChatListNavigationBar.rubberBandAmplitude
+                let rubberBandAddition = rubberBandAmplitude * log10(visibleSize.height / minArchiveCoverThreshold)
+                clampedArchiveCoverHeight -= rubberBandAddition / 2
+
+                let maxArchiveCoverThreshold = minArchiveCoverThreshold + archiveCoverScrollHeight
+                if visibleSize.height > maxArchiveCoverThreshold + rubberBandAddition / 2 {
+                    clampedArchiveCoverHeight = ChatListNavigationBar.archiveCoverScrollHeight
+                }
+                archiveCoverHeight = clampedArchiveCoverHeight
+                visibleSize.height -= clampedArchiveCoverHeight
+            }
             
             let previousHeight = self.separatorLayer.position.y
-            
+
+            // MARK: - Background
+
             self.backgroundView.update(size: CGSize(width: visibleSize.width, height: 1000.0), transition: transition.containedViewLayoutTransition)
-            
-            transition.setBounds(view: self.backgroundView, bounds: CGRect(origin: CGPoint(), size: CGSize(width: visibleSize.width, height: 1000.0)))
-            transition.animatePosition(view: self.backgroundView, from: CGPoint(x: 0.0, y: -visibleSize.height + self.backgroundView.layer.position.y), to: CGPoint(), additive: true)
+            transition.setBounds(
+                view: self.backgroundView,
+                bounds: CGRect(
+                    origin: CGPoint(),
+                    size: CGSize(width: visibleSize.width, height: 1000.0)
+                )
+            )
+            transition.animatePosition(
+                view: self.backgroundView,
+                from: CGPoint(x: 0.0, y: -visibleSize.height + self.backgroundView.layer.position.y),
+                to: CGPoint(),
+                additive: true
+            )
             self.backgroundView.layer.position = CGPoint(x: 0.0, y: visibleSize.height)
-            
-            transition.setFrameWithAdditivePosition(layer: self.separatorLayer, frame: CGRect(origin: CGPoint(x: 0.0, y: visibleSize.height), size: CGSize(width: visibleSize.width, height: UIScreenPixel)))
+
+            // MARK: - Separator
+
+            transition.setFrameWithAdditivePosition(
+                layer: self.separatorLayer,
+                frame: CGRect(
+                    origin: CGPoint(x: 0.0, y: visibleSize.height),
+                    size: CGSize(
+                        width: visibleSize.width,
+                        height: UIScreenPixel
+                    )
+                )
+            )
+
+            // MARK: - Search Content
             
             let searchContentNode: NavigationBarSearchContentNode
             if let current = self.searchContentNode {
@@ -274,7 +384,11 @@ public final class ChatListNavigationBar: Component {
                     placeholder = component.strings.Common_Search
                     compactPlaceholder = component.strings.Common_Search
                     
-                    searchContentNode.updateThemeAndPlaceholder(theme: component.theme, placeholder: placeholder, compactPlaceholder: compactPlaceholder)
+                    searchContentNode.updateThemeAndPlaceholder(
+                        theme: component.theme,
+                        placeholder: placeholder,
+                        compactPlaceholder: compactPlaceholder
+                    )
                 }
             } else {
                 let placeholder: String
@@ -298,9 +412,20 @@ public final class ChatListNavigationBar: Component {
                 self.searchContentNode = searchContentNode
                 self.addSubview(searchContentNode.view)
             }
+
+            // MARK: - Search Frame
             
-            let searchSize = CGSize(width: currentLayout.size.width - 6.0 * 2.0, height: navigationBarSearchContentHeight)
-            var searchFrame = CGRect(origin: CGPoint(x: 6.0, y: visibleSize.height - searchSize.height), size: searchSize)
+            let searchSize = CGSize(
+                width: currentLayout.size.width - ChatListNavigationBar.searchHorizontalInset * 2.0,
+                height: navigationBarSearchContentHeight
+            )
+            var searchFrame = CGRect(
+                origin: CGPoint(
+                    x: ChatListNavigationBar.searchHorizontalInset,
+                    y: visibleSize.height - searchSize.height
+                ),
+                size: searchSize
+            )
             if component.tabsNode != nil {
                 searchFrame.origin.y -= 40.0
             }
@@ -314,14 +439,27 @@ public final class ChatListNavigationBar: Component {
             
             transition.setFrameWithAdditivePosition(view: searchContentNode.view, frame: searchFrame)
             
-            searchContentNode.updateLayout(size: searchSize, leftInset: component.sideInset, rightInset: component.sideInset, transition: transition.containedViewLayoutTransition)
+            searchContentNode.updateLayout(
+                size: searchSize,
+                leftInset: component.sideInset,
+                rightInset: component.sideInset,
+                transition: transition.containedViewLayoutTransition
+            )
+
+            // MARK: - Stories
             
             let headerTransition = transition
             
             let storiesOffsetFraction: CGFloat
             let storiesUnlocked: Bool
             if allowAvatarsExpansion {
-                storiesOffsetFraction = max(0.0, min(4.0, -offset / ChatListNavigationBar.storiesScrollHeight))
+                storiesOffsetFraction = max(
+                    0.0,
+                    min(
+                        4.0,
+                        (-offset - archiveCoverHeight) / ChatListNavigationBar.storiesScrollHeight
+                    )
+                )
                 if offset <= -65.0 {
                     storiesUnlocked = true
                 } else if offset >= -61.0 {
@@ -334,7 +472,11 @@ public final class ChatListNavigationBar: Component {
                 storiesUnlocked = false
             }
             
-            if allowAvatarsExpansion, transition.animation.isImmediate, let storySubscriptions = component.storySubscriptions, !storySubscriptions.items.isEmpty {
+            if
+                allowAvatarsExpansion,
+                transition.animation.isImmediate,
+                let storySubscriptions = component.storySubscriptions, !storySubscriptions.items.isEmpty
+            {
                 if self.storiesUnlocked != storiesUnlocked {
                     if storiesUnlocked {
                         HapticFeedback().tap()
@@ -347,6 +489,8 @@ public final class ChatListNavigationBar: Component {
                 component.allowAutomaticOrder()
             }
             self.storiesUnlocked = storiesUnlocked
+
+            // MARK: - Header content
             
             let headerComponent = ChatListHeaderComponent(
                 sideInset: component.sideInset + 16.0,
@@ -384,6 +528,9 @@ public final class ChatListNavigationBar: Component {
             }
             
             self.currentHeaderComponent = headerComponent
+
+            // MARK: - Header Frame
+
             let headerContentSize = self.headerContent.update(
                 transition: headerTransition.withUserData(StoryPeerListComponent.AnimationHint(
                     duration: animationDuration,
@@ -393,7 +540,7 @@ public final class ChatListNavigationBar: Component {
                 )),
                 component: AnyComponent(headerComponent),
                 environment: {},
-                containerSize: CGSize(width: currentLayout.size.width, height: 44.0)
+                containerSize: CGSize(width: currentLayout.size.width, height: ChatListNavigationBar.headerHeight)
             )
             let headerContentY: CGFloat
             if component.isSearchActive {
@@ -402,7 +549,7 @@ public final class ChatListNavigationBar: Component {
                 if component.statusBarHeight < 1.0 {
                     headerContentY = 0.0
                 } else {
-                    headerContentY = component.statusBarHeight + 5.0
+                    headerContentY = component.statusBarHeight + ChatListNavigationBar.headerTopOffset
                 }
             }
             let headerContentFrame = CGRect(origin: CGPoint(x: 0.0, y: headerContentY), size: headerContentSize)
@@ -425,6 +572,8 @@ public final class ChatListNavigationBar: Component {
                     }
                 }
             }
+
+            // MARK: - Reset tabs node if needed
             
             if component.tabsNode !== self.tabsNode {
                 if let tabsNode = self.tabsNode {
@@ -444,24 +593,51 @@ public final class ChatListNavigationBar: Component {
                     })
                 }
             }
+
+            // MARK: - Tabs frame
             
-            var tabsFrame = CGRect(origin: CGPoint(x: 0.0, y: visibleSize.height), size: CGSize(width: visibleSize.width, height: 46.0))
+            var tabsFrame = CGRect(
+                origin: CGPoint(x: 0.0, y: visibleSize.height),
+                size: CGSize(
+                    width: visibleSize.width,
+                    height: ChatListNavigationBar.tabsHeight
+                )
+            )
             if !component.isSearchActive {
                 tabsFrame.origin.y -= component.accessoryPanelContainerHeight
             }
             if component.tabsNode != nil {
-                tabsFrame.origin.y -= 46.0
+                tabsFrame.origin.y -= ChatListNavigationBar.tabsHeight
             }
+
+            // MARK: - Archive Frame
+
+            let archiveCoverFrame = CGRect(
+                origin: CGPoint(x: 0.0, y: visibleSize.height),
+                size: CGSize(width: visibleSize.width, height: archiveCoverHeight)
+            )
+
+            // MARK: - Accessory Panel
             
             var accessoryPanelContainerFrame = CGRect(origin: CGPoint(x: 0.0, y: visibleSize.height), size: CGSize(width: visibleSize.width, height: component.accessoryPanelContainerHeight))
             if !component.isSearchActive {
                 accessoryPanelContainerFrame.origin.y -= component.accessoryPanelContainerHeight
             }
+
+            // MARK: - Disappearing tabs transition
             
             if let disappearingTabsView = self.disappearingTabsView {
                 disappearingTabsView.layer.anchorPoint = CGPoint()
-                transition.setFrameWithAdditivePosition(view: disappearingTabsView, frame: tabsFrame.offsetBy(dx: 0.0, dy: self.disappearingTabsViewSearch ? (-currentLayout.size.height + 2.0) : 0.0))
+                transition.setFrameWithAdditivePosition(
+                    view: disappearingTabsView,
+                    frame: tabsFrame.offsetBy(
+                        dx: 0.0,
+                        dy: self.disappearingTabsViewSearch ? (-currentLayout.size.height + 2.0) : 0.0
+                    )
+                )
             }
+
+            // MARK: - Tabs transition
             
             if let tabsNode = component.tabsNode {
                 self.tabsNode = tabsNode
@@ -486,8 +662,47 @@ public final class ChatListNavigationBar: Component {
                     transition.setAlpha(view: tabsNode.view, alpha: 1.0)
                 }
                 
-                tabsNodeTransition.setFrameWithAdditivePosition(view: tabsNode.view, frame: tabsFrame.offsetBy(dx: 0.0, dy: component.tabsNodeIsSearch ? (-currentLayout.size.height + 2.0) : 0.0))
+                tabsNodeTransition.setFrameWithAdditivePosition(
+                    view: tabsNode.view,
+                    frame: tabsFrame.offsetBy(
+                        dx: 0.0,
+                        dy: component.tabsNodeIsSearch ? (-currentLayout.size.height + 2.0) : 0.0
+                    )
+                )
             }
+
+            // MARK: - Reset archive cover node if needed
+
+            if component.archiveCoverNode !== self.archiveCoverNode {
+                if let currentArchiveCoverNode = self.archiveCoverNode {
+                    currentArchiveCoverNode.view.removeFromSuperview()
+                    self.archiveCoverNode = nil
+                }
+            }
+
+            // MARK: - Archive cover transition
+
+            if let archiveCoverNode = component.archiveCoverNode {
+                self.archiveCoverNode = archiveCoverNode
+
+                var archiveCoverNodeTransition = transition
+                if archiveCoverNode.view.superview != self {
+                    archiveCoverNode.view.layer.anchorPoint = CGPoint()
+                    archiveCoverNodeTransition = .immediate
+                    archiveCoverNode.view.alpha = 1.0
+                    addSubview(archiveCoverNode.view)
+                }
+
+                archiveCoverNodeTransition.setFrameWithAdditivePosition(
+                    view: archiveCoverNode.view,
+                    frame: archiveCoverFrame.offsetBy(
+                        dx: 0.0,
+                        dy: component.tabsNodeIsSearch ? (-currentLayout.size.height + 2.0) : 0.0
+                    )
+                )
+            }
+
+            // MARK: - Accesory panel transition
             
             if let accessoryPanelContainer = component.accessoryPanelContainer {
                 var tabsNodeTransition = transition
@@ -504,8 +719,13 @@ public final class ChatListNavigationBar: Component {
                     transition.setAlpha(view: accessoryPanelContainer.view, alpha: 1.0)
                 }
                 
-                tabsNodeTransition.setFrameWithAdditivePosition(view: accessoryPanelContainer.view, frame: accessoryPanelContainerFrame)
+                tabsNodeTransition.setFrameWithAdditivePosition(
+                    view: accessoryPanelContainer.view,
+                    frame: accessoryPanelContainerFrame
+                )
             }
+
+            return archiveCoverScrollHeight
         }
         
         public func updateStoryUploadProgress(storyUploadProgress: Float?) {
@@ -528,6 +748,8 @@ public final class ChatListNavigationBar: Component {
                     uploadProgress: storyUploadProgress,
                     tabsNode: component.tabsNode,
                     tabsNodeIsSearch: component.tabsNodeIsSearch,
+                    isMainTab: component.isMainTab,
+                    archiveCoverNode: component.archiveCoverNode,
                     accessoryPanelContainer: component.accessoryPanelContainer,
                     accessoryPanelContainerHeight: component.accessoryPanelContainerHeight,
                     activateSearch: component.activateSearch,
@@ -564,7 +786,14 @@ public final class ChatListNavigationBar: Component {
             }
         }
         
-        func update(component: ChatListNavigationBar, availableSize: CGSize, state: EmptyComponentState, environment: Environment<Empty>, transition: Transition) -> CGSize {
+        func update(
+            component: ChatListNavigationBar,
+            availableSize: CGSize,
+            state: EmptyComponentState,
+            environment: Environment<Empty>,
+            isMainTab: Bool,
+            transition: Transition
+        ) -> CGSize {
             let themeUpdated = self.component?.theme !== component.theme
             
             var uploadProgressUpdated = false
@@ -613,14 +842,22 @@ public final class ChatListNavigationBar: Component {
             self.currentLayout = CurrentLayout(size: size)
             
             self.hasDeferredScrollOffset = true
-            
+
+            var heightSubtraction: CGFloat = 0.0
             if uploadProgressUpdated || storySubscriptionsUpdated {
                 if let rawScrollOffset = self.rawScrollOffset {
-                    self.applyScroll(offset: rawScrollOffset, allowAvatarsExpansion: self.currentAllowAvatarsExpansion, forceUpdate: true, transition: transition)
+                    if let subtraction = self.applyScroll(
+                        offset: rawScrollOffset,
+                        allowAvatarsExpansion: self.currentAllowAvatarsExpansion,
+                        forceUpdate: true,
+                        transition: transition
+                    ) {
+                        heightSubtraction = subtraction
+                    }
                 }
             }
             
-            return size
+            return CGSize(width: size.width, height: size.height - heightSubtraction)
         }
     }
     
@@ -628,7 +865,20 @@ public final class ChatListNavigationBar: Component {
         return View(frame: CGRect())
     }
 
-    public func update(view: View, availableSize: CGSize, state: EmptyComponentState, environment: Environment<Empty>, transition: Transition) -> CGSize {
-        return view.update(component: self, availableSize: availableSize, state: state, environment: environment, transition: transition)
+    public func update(
+        view: View,
+        availableSize: CGSize,
+        state: EmptyComponentState,
+        environment: Environment<Empty>,
+        transition: Transition
+    ) -> CGSize {
+        return view.update(
+            component: self,
+            availableSize: availableSize,
+            state: state,
+            environment: environment,
+            isMainTab: isMainTab,
+            transition: transition
+        )
     }
 }

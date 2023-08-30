@@ -380,7 +380,7 @@ private final class ChatListContainerItemNode: ASDisplayNode {
         self.listNode = ChatListNode(context: context, location: location, chatListFilter: filter, previewing: previewing, fillPreloadItems: controlsHistoryPreload, mode: chatListMode, theme: presentationData.theme, fontSize: presentationData.listsFontSize, strings: presentationData.strings, dateTimeFormat: presentationData.dateTimeFormat, nameSortOrder: presentationData.nameSortOrder, nameDisplayOrder: presentationData.nameDisplayOrder, animationCache: animationCache, animationRenderer: animationRenderer, disableAnimations: true, isInlineMode: isInlineMode, autoSetReady: autoSetReady)
         
         if let controller, case .chatList(groupId: .root) = controller.location {
-            self.listNode.scrollHeightTopInset = ChatListNavigationBar.searchScrollHeight + ChatListNavigationBar.storiesScrollHeight
+            self.listNode.scrollHeightTopInset = ChatListNavigationBar.searchScrollHeight + ChatListNavigationBar.storiesScrollHeight + ChatListNavigationBar.archiveCoverScrollHeight
         }
         
         super.init()
@@ -797,7 +797,7 @@ public final class ChatListContainerNode: ASDisplayNode, UIGestureRecognizerDele
     }
     
     private var filtersLimit: Int32? = nil
-    private var selectedId: ChatListFilterTabEntryId
+    private(set) var selectedId: ChatListFilterTabEntryId
     
     var hintUpdatedStoryExpansion: Bool = false
     var ignoreStoryUnlockedScrolling: Bool = false
@@ -2027,6 +2027,8 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
                 effectiveStorySubscriptions = EngineStorySubscriptions(accountItem: nil, items: [], hasMoreToken: nil)
             }
         }
+
+        let isMainTab = mainContainerNode.selectedId == .all && self.location == .chatList(groupId: .root)
         
         let navigationBarSize = self.navigationBarView.update(
             transition: transition,
@@ -2045,6 +2047,8 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
                 uploadProgress: self.controller?.storyUploadProgress,
                 tabsNode: tabsNode,
                 tabsNodeIsSearch: tabsNodeIsSearch,
+                isMainTab: isMainTab,
+                archiveCoverNode: ChatListArchiveCoverNode(),
                 accessoryPanelContainer: self.controller?.accessoryPanelContainer,
                 accessoryPanelContainerHeight: self.controller?.accessoryPanelContainerHeight ?? 0.0,
                 activateSearch: { [weak self] searchContentNode in
@@ -2146,10 +2150,18 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
         }
         
         if let navigationBarComponentView = self.navigationBarView.view as? ChatListNavigationBar.View {
-            navigationBarComponentView.applyScroll(offset: offset, allowAvatarsExpansion: allowAvatarsExpansion, forceUpdate: false, transition: Transition(transition).withUserData(ChatListNavigationBar.AnimationHint(
-                disableStoriesAnimations: self.tempDisableStoriesAnimations,
-                crossfadeStoryPeers: false
-            )))
+            let _ = navigationBarComponentView.applyScroll(
+                offset: offset,
+                allowAvatarsExpansion: allowAvatarsExpansion,
+                forceUpdate: false,
+                transition: Transition(transition)
+                    .withUserData(
+                        ChatListNavigationBar.AnimationHint(
+                            disableStoriesAnimations: self.tempDisableStoriesAnimations,
+                            crossfadeStoryPeers: false
+                        )
+                    )
+                )
         }
         
         let mainDelta: CGFloat
@@ -2415,7 +2427,11 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
     
     func willScrollToTop() {
         if let navigationBarComponentView = self.navigationBarView.view as? ChatListNavigationBar.View {
-            navigationBarComponentView.applyScroll(offset: 0.0, allowAvatarsExpansion: false, transition: Transition(animation: .curve(duration: 0.3, curve: .slide)))
+            let _ = navigationBarComponentView.applyScroll(
+                offset: 0.0,
+                allowAvatarsExpansion: false,
+                transition: Transition(animation: .curve(duration: 0.3, curve: .slide))
+            )
         }
     }
     

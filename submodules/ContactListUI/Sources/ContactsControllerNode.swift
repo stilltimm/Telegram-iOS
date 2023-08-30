@@ -345,6 +345,8 @@ final class ContactsControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
                 uploadProgress: nil,
                 tabsNode: tabsNode,
                 tabsNodeIsSearch: tabsNodeIsSearch,
+                isMainTab: false,
+                archiveCoverNode: nil,
                 accessoryPanelContainer: nil,
                 accessoryPanelContainerHeight: 0.0,
                 activateSearch: { [weak self] searchContentNode in
@@ -394,7 +396,11 @@ final class ContactsControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
         }
         
         if let navigationBarComponentView = self.navigationBarView.view as? ChatListNavigationBar.View {
-            navigationBarComponentView.applyScroll(offset: offset, allowAvatarsExpansion: false, transition: Transition(transition))
+            let _ = navigationBarComponentView.applyScroll(
+                offset: offset,
+                allowAvatarsExpansion: false,
+                transition: Transition(transition)
+            )
         }
     }
     
