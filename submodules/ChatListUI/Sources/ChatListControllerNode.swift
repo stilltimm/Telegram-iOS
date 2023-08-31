@@ -2029,6 +2029,7 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
         }
 
         let isMainTab = mainContainerNode.selectedId == .all && self.location == .chatList(groupId: .root)
+        //mainContainerNode.currentItemNode.scrollHiddenItemsTemporaryRevealedWhileDragging()
         
         let navigationBarSize = self.navigationBarView.update(
             transition: transition,
@@ -2446,44 +2447,45 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
         self.updateNavigationScrolling(navigationHeight: containerLayout.navigationBarHeight, transition: self.tempNavigationScrollingTransition ?? .immediate)
         
         if listView.isDragging {
-            var overscrollSelectedId: EnginePeer.Id?
-            var overscrollHiddenChatItemsAllowed = false
-            if
-                let controller = self.controller,
-                let componentView = controller.chatListHeaderView(),
-                let storyPeerListView = componentView.storyPeerListView()
-            {
-                overscrollSelectedId = storyPeerListView.overscrollSelectedId
-                overscrollHiddenChatItemsAllowed = storyPeerListView.overscrollHiddenChatItemsAllowed
-            }
-            
-            if let chatListNode = listView as? ChatListNode {
-                if chatListNode.hasItemsToBeRevealed() {
-                    overscrollSelectedId = nil
-                }
-            }
+//            var overscrollSelectedId: EnginePeer.Id?
+//            var overscrollHiddenChatItemsAllowed = false
+//            if
+//                let controller = self.controller,
+//                let componentView = controller.chatListHeaderView(),
+//                let storyPeerListView = componentView.storyPeerListView()
+//            {
+//                overscrollSelectedId = storyPeerListView.overscrollSelectedId
+//                overscrollHiddenChatItemsAllowed = storyPeerListView.overscrollHiddenChatItemsAllowed
+//            }
+//
+//            if let chatListNode = listView as? ChatListNode {
+//                if chatListNode.hasItemsToBeRevealed() {
+//                    overscrollSelectedId = nil
+//                }
+//            }
             
             if let controller = self.controller {
-                if let peerId = overscrollSelectedId {
-                    if self.allowOverscrollStoryExpansion && self.inlineStackContainerNode == nil && isPrimary {
-                        let timestamp = CACurrentMediaTime()
-                        if let _ = self.currentOverscrollStoryExpansionTimestamp {
-                        } else {
-                            self.currentOverscrollStoryExpansionTimestamp = timestamp
-                        }
-                        
-                        if let currentOverscrollStoryExpansionTimestamp = self.currentOverscrollStoryExpansionTimestamp, currentOverscrollStoryExpansionTimestamp <= timestamp - 0.0 {
-                            self.allowOverscrollStoryExpansion = false
-                            self.currentOverscrollStoryExpansionTimestamp = nil
-                            self.allowOverscrollItemExpansion = false
-                            self.currentOverscrollItemExpansionTimestamp = nil
-                            HapticFeedback().tap()
-                            
-                            controller.openStories(peerId: peerId)
-                        }
-                    }
-                } else {
-                    if !overscrollHiddenChatItemsAllowed {
+//                if let peerId = overscrollSelectedId {
+//                    if self.allowOverscrollStoryExpansion && self.inlineStackContainerNode == nil && isPrimary {
+//                        let timestamp = CACurrentMediaTime()
+//                        if let _ = self.currentOverscrollStoryExpansionTimestamp {
+//                        } else {
+//                            self.currentOverscrollStoryExpansionTimestamp = timestamp
+//                        }
+//
+//                        if let currentOverscrollStoryExpansionTimestamp = self.currentOverscrollStoryExpansionTimestamp, currentOverscrollStoryExpansionTimestamp <= timestamp - 0.0 {
+//                            self.allowOverscrollStoryExpansion = false
+//                            self.currentOverscrollStoryExpansionTimestamp = nil
+//                            self.allowOverscrollItemExpansion = false
+//                            self.currentOverscrollItemExpansionTimestamp = nil
+//                            HapticFeedback().tap()
+//
+//                            controller.openStories(peerId: peerId)
+//                        }
+//                    }
+//                } else {
+                    var hiddenItemsTemporaryUnlockedWhileDragging: Bool = false
+//                    if !overscrollHiddenChatItemsAllowed {
                         var manuallyAllow = false
                         
                         if isPrimary {
@@ -2501,36 +2503,56 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
                             case let .known(value) = offset
                         {
                             let overscrollItemUnlocked = value + listView.tempTopInset <= -coverThreshold
-                            overscrollHiddenChatItemsAllowed = overscrollItemUnlocked
+                            hiddenItemsTemporaryUnlockedWhileDragging = overscrollItemUnlocked
                         }
-                    }
+//                    }
 
-                    if overscrollHiddenChatItemsAllowed {
-                        if self.allowOverscrollItemExpansion {
-                            let timestamp = CACurrentMediaTime()
-                            if let _ = self.currentOverscrollItemExpansionTimestamp {
+                    if self.allowOverscrollItemExpansion {
+                        let timestamp = CACurrentMediaTime()
+                        if let _ = self.currentOverscrollItemExpansionTimestamp {
+                        } else {
+                            self.currentOverscrollItemExpansionTimestamp = timestamp
+                        }
+
+                        if
+                            let currentOverscrollItemExpansionTimestamp = self.currentOverscrollItemExpansionTimestamp,
+                            currentOverscrollItemExpansionTimestamp <= timestamp - 0.0
+                        {
+                            if isPrimary {
+                                self.mainContainerNode.currentItemNode.setScrollHiddenItemState(
+                                    isDragging: true,
+                                    hidden: !hiddenItemsTemporaryUnlockedWhileDragging
+                                )
                             } else {
-                                self.currentOverscrollItemExpansionTimestamp = timestamp
-                            }
-
-                            if
-                                let currentOverscrollItemExpansionTimestamp = self.currentOverscrollItemExpansionTimestamp,
-                                currentOverscrollItemExpansionTimestamp <= timestamp - 0.0
-                            {
-                                self.allowOverscrollItemExpansion = false
-
-                                if isPrimary {
-                                    self.mainContainerNode.currentItemNode.revealScrollHiddenItem()
-                                } else {
-                                    self.inlineStackContainerNode?.currentItemNode.revealScrollHiddenItem()
-                                }
+                                self.inlineStackContainerNode?.currentItemNode.setScrollHiddenItemState(
+                                    isDragging: true,
+                                    hidden: !hiddenItemsTemporaryUnlockedWhileDragging
+                                )
                             }
                         }
                     }
-                }
+//                }
             }
         } else {
-            // TODO: If temporary revealed in transition, set temporary revealed
+            // NOTE: If after dragging ends the state is .temporaryRevealedWhileDragging,
+            // change state to .temporaryRevealed
+            if
+                isPrimary,
+                self.mainContainerNode.currentItemNode.scrollHiddenItemsTemporaryRevealedWhileDragging()
+            {
+                self.mainContainerNode.currentItemNode.setScrollHiddenItemState(
+                    isDragging: false,
+                    hidden: false
+                )
+            } else if
+                let inlineStackContainerNode = self.inlineStackContainerNode,
+                inlineStackContainerNode.currentItemNode.scrollHiddenItemsTemporaryRevealedWhileDragging()
+            {
+                inlineStackContainerNode.currentItemNode.setScrollHiddenItemState(
+                    isDragging: false,
+                    hidden: false
+                )
+            }
         }
     }
     
