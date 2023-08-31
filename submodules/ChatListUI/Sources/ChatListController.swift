@@ -4645,9 +4645,7 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             }
             strongSelf.chatListDisplayNode.mainContainerNode.updateState { state in
                 var state = state
-                if updatedValue {
-                    state.hiddenItemShouldBeTemporaryRevealed = false
-                }
+                state.hiddenItemsState = updatedValue ? .hidden : .revealed
                 state.peerIdWithRevealedOptions = nil
                 return state
             }
@@ -5116,7 +5114,7 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             if let strongSelf = self {
                 strongSelf.chatListDisplayNode.effectiveContainerNode.updateState { state in
                     var state = state
-                    state.hiddenItemShouldBeTemporaryRevealed = false
+                    state.hiddenItemsState = .hidden
                     return state
                 }
                 

@@ -396,7 +396,7 @@ final class ContactsControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
         }
         
         if let navigationBarComponentView = self.navigationBarView.view as? ChatListNavigationBar.View {
-            let _ = navigationBarComponentView.applyScroll(
+            navigationBarComponentView.applyScroll(
                 offset: offset,
                 allowAvatarsExpansion: false,
                 transition: Transition(transition)

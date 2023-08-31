@@ -157,15 +157,13 @@ public final class ChatListNavigationBar: Component {
 
     public static let headerTopOffset: CGFloat = 5.0
     public static let headerHeight: CGFloat = 44.0
+    public static let storiesUnlockThreshold: CGFloat = 65.0
+    public static let storiesLockThreshold: CGFloat = 61.0
     public static let searchHorizontalInset: CGFloat = 6.0
     public static let searchScrollHeight: CGFloat = 52.0
     public static let tabsHeight: CGFloat = 46.0
     public static let storiesScrollHeight: CGFloat = {
         return 83.0
-    }()
-    public static let archiveCoverScrollHeight: CGFloat = {
-        // TODO: Use properly calculated chat list item height
-        return 77.0
     }()
     public static let rubberBandAmplitude: CGFloat = 100
     public static func minArchiveCoverThreshold(
@@ -255,7 +253,7 @@ public final class ChatListNavigationBar: Component {
         
         public func applyCurrentScroll(transition: Transition) {
             if let rawScrollOffset = self.rawScrollOffset, self.hasDeferredScrollOffset {
-                let _ = self.applyScroll(
+                self.applyScroll(
                     offset: rawScrollOffset,
                     allowAvatarsExpansion: self.currentAllowAvatarsExpansion,
                     transition: transition
@@ -268,7 +266,7 @@ public final class ChatListNavigationBar: Component {
             allowAvatarsExpansion: Bool,
             forceUpdate: Bool = false,
             transition: Transition
-        ) -> CGFloat? {
+        ) {
             let transition = transition
             
             self.rawScrollOffset = offset
@@ -277,17 +275,37 @@ public final class ChatListNavigationBar: Component {
             
             if self.deferScrollApplication && !forceUpdate {
                 self.hasDeferredScrollOffset = true
-                return nil
+                return
             }
             
-            guard let component = self.component, let currentLayout = self.currentLayout else {
-                return nil
+            guard let component = self.component, let currentLayoutWidth = self.currentLayout?.size.width else {
+                return
             }
             
             let themeUpdated = component.theme !== self.scrollTheme || component.strings !== self.scrollStrings
             
             self.scrollTheme = component.theme
             self.scrollStrings = component.strings
+
+            // MARK: - Decrease content height
+
+            let overflowHeight = self.overflowHeight(
+                for: component,
+                contentOffset: offset
+            )
+            if !forceUpdate, component.isMainTab {
+                let contentHeight = expectedContentHeight(for: component, contentOffset: offset)
+                self.currentLayout = CurrentLayout(
+                    size: CGSize(
+                        width: currentLayoutWidth,
+                        height: contentHeight
+                    )
+                )
+            }
+
+            guard let currentLayout = self.currentLayout else {
+                return
+            }
 
             // MARK: - Offset & Visible Height
             
@@ -303,50 +321,19 @@ public final class ChatListNavigationBar: Component {
                     && !forceUpdate
                     && !allowAvatarsExpansionUpdated
             {
-                return nil
+                return
             }
             self.hasDeferredScrollOffset = false
             self.clippedScrollOffset = clippedScrollOffset
             
-            var visibleSize = CGSize(
+            let visibleSize = CGSize(
                 width: currentLayout.size.width,
                 height: max(0.0, currentLayout.size.height - clippedScrollOffset)
             )
 
             // MARK: - Archive cover height
 
-            let minArchiveCoverThreshold = ChatListNavigationBar.minArchiveCoverThreshold(
-                statusBarHeight: component.statusBarHeight,
-                hasTabs: component.tabsNode != nil,
-                hasStories: component.storySubscriptions?.items.isEmpty == false,
-                accessoryHeight: component.accessoryPanelContainer != nil
-                    ? component.accessoryPanelContainerHeight
-                    : nil
-            )
-            let archiveCoverScrollHeight = ChatListNavigationBar.archiveCoverScrollHeight
-
-            var archiveCoverHeight: CGFloat = 0
-            if
-                component.isMainTab,
-                !component.isSearchActive,
-                component.archiveCoverNode != nil,
-                visibleSize.height > minArchiveCoverThreshold
-            {
-                var clampedArchiveCoverHeight = visibleSize.height - minArchiveCoverThreshold
-                let rubberBandAmplitude = ChatListNavigationBar.rubberBandAmplitude
-                let rubberBandAddition = rubberBandAmplitude * log10(visibleSize.height / minArchiveCoverThreshold)
-                clampedArchiveCoverHeight -= rubberBandAddition / 2
-
-                var maxArchiveCoverThreshold = minArchiveCoverThreshold + archiveCoverScrollHeight
-                maxArchiveCoverThreshold += rubberBandAddition / 2
-                if visibleSize.height > maxArchiveCoverThreshold {
-                    let rubberBandAddition2 = rubberBandAmplitude * log10(visibleSize.height / maxArchiveCoverThreshold)
-                    clampedArchiveCoverHeight = ChatListNavigationBar.archiveCoverScrollHeight + rubberBandAddition2
-                }
-                archiveCoverHeight = clampedArchiveCoverHeight
-                visibleSize.height -= clampedArchiveCoverHeight
-            }
-            
+            let archiveCoverHeight = overflowHeight
             let previousHeight = self.separatorLayer.position.y
 
             // MARK: - Background
@@ -436,7 +423,7 @@ public final class ChatListNavigationBar: Component {
                 size: searchSize
             )
             if component.tabsNode != nil {
-                searchFrame.origin.y -= 40.0
+                searchFrame.origin.y -= ChatListNavigationBar.tabsHeight
             }
             if !component.isSearchActive {
                 searchFrame.origin.y -= component.accessoryPanelContainerHeight
@@ -469,9 +456,9 @@ public final class ChatListNavigationBar: Component {
                         (-offset - archiveCoverHeight) / ChatListNavigationBar.storiesScrollHeight
                     )
                 )
-                if offset <= -65.0 {
+                if offset <= -ChatListNavigationBar.storiesUnlockThreshold {
                     storiesUnlocked = true
-                } else if offset >= -61.0 {
+                } else if offset >= -ChatListNavigationBar.storiesLockThreshold {
                     storiesUnlocked = false
                 } else {
                     storiesUnlocked = self.storiesUnlocked
@@ -733,8 +720,6 @@ public final class ChatListNavigationBar: Component {
                     frame: accessoryPanelContainerFrame
                 )
             }
-
-            return archiveCoverScrollHeight
         }
         
         public func updateStoryUploadProgress(storyUploadProgress: Float?) {
@@ -824,13 +809,41 @@ public final class ChatListNavigationBar: Component {
                 self.separatorLayer.backgroundColor = component.theme.rootController.navigationBar.separatorColor.cgColor
             }
             
-            var contentHeight = component.statusBarHeight
+            let contentHeight = expectedContentHeight(
+                for: component,
+                contentOffset: self.rawScrollOffset
+            )
             
+            let size = CGSize(width: availableSize.width, height: contentHeight)
+            self.currentLayout = CurrentLayout(size: size)
+            
+            self.hasDeferredScrollOffset = true
+
+            if uploadProgressUpdated || storySubscriptionsUpdated {
+                if let rawScrollOffset = self.rawScrollOffset {
+                    self.applyScroll(
+                        offset: rawScrollOffset,
+                        allowAvatarsExpansion: self.currentAllowAvatarsExpansion,
+                        forceUpdate: true,
+                        transition: transition
+                    )
+                }
+            }
+
+            return size
+        }
+
+        private func expectedContentHeight(
+            for component: ChatListNavigationBar,
+            contentOffset: CGFloat?
+        ) -> CGFloat {
+            var contentHeight = component.statusBarHeight
+
             if component.statusBarHeight >= 1.0 {
                 contentHeight += 3.0
             }
-            contentHeight += 44.0
-            
+            contentHeight += ChatListNavigationBar.headerHeight
+
             if component.isSearchActive {
                 if component.statusBarHeight < 1.0 {
                     contentHeight += 8.0
@@ -838,38 +851,47 @@ public final class ChatListNavigationBar: Component {
             } else {
                 contentHeight += navigationBarSearchContentHeight
             }
-            
+
             if component.tabsNode != nil {
-                contentHeight += 40.0
+                contentHeight += ChatListNavigationBar.tabsHeight
             }
-            
+
             if component.accessoryPanelContainer != nil && !component.isSearchActive {
                 contentHeight += component.accessoryPanelContainerHeight
             }
-            
-            let size = CGSize(width: availableSize.width, height: contentHeight)
-            self.currentLayout = CurrentLayout(size: size)
-            
-            self.hasDeferredScrollOffset = true
 
-            var heightSubtraction: CGFloat = 0.0
-            if uploadProgressUpdated || storySubscriptionsUpdated {
-                if let rawScrollOffset = self.rawScrollOffset {
-                    if let subtraction = self.applyScroll(
-                        offset: rawScrollOffset,
-                        allowAvatarsExpansion: self.currentAllowAvatarsExpansion,
-                        forceUpdate: true,
-                        transition: transition
-                    ) {
-                        heightSubtraction = subtraction
-                    }
-                }
+            contentHeight -= overflowHeight(for: component, contentOffset: contentOffset)
+
+            return contentHeight
+        }
+
+        private func overflowHeight(for component: ChatListNavigationBar, contentOffset: CGFloat?) -> CGFloat {
+            guard
+                component.isMainTab,
+                !component.isSearchActive,
+                component.archiveCoverNode != nil,
+                let contentOffset,
+                contentOffset < 0.0
+            else {
+                return 0.0
             }
-            
-            let updatedSize = CGSize(width: size.width, height: size.height - heightSubtraction)
-            self.currentLayout = CurrentLayout(size: updatedSize)
 
-            return updatedSize
+            let reversedOffset = -contentOffset
+            let result = max(0, reversedOffset)
+
+            if
+                let stories = component.storySubscriptions?.items,
+                !stories.isEmpty
+            {
+                if reversedOffset <= ChatListNavigationBar.storiesScrollHeight {
+                    return 0.0
+                }
+
+                let storiesAdjustedOffset = reversedOffset - ChatListNavigationBar.storiesScrollHeight
+                return storiesAdjustedOffset * 0.80
+            }
+
+            return result
         }
     }
     

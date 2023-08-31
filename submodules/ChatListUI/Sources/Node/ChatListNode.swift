@@ -237,6 +237,22 @@ public struct ChatListNodeState: Equatable {
             self.threadId = threadId
         }
     }
+
+    public enum HiddenItemsState: Hashable {
+        case hidden
+        case temporaryRevealedWhileDragging
+        case temporaryRevealed
+        case revealed
+
+        var isRevealed: Bool {
+            switch self {
+            case .hidden:
+                return false
+            case .temporaryRevealedWhileDragging, .temporaryRevealed, .revealed:
+                return true
+            }
+        }
+    }
     
     public var presentationData: ChatListPresentationData
     public var editing: Bool
@@ -245,7 +261,7 @@ public struct ChatListNodeState: Equatable {
     public var peerInputActivities: ChatListNodePeerInputActivities?
     public var pendingRemovalItemIds: Set<ItemId>
     public var pendingClearHistoryPeerIds: Set<ItemId>
-    public var hiddenItemShouldBeTemporaryRevealed: Bool
+    public var hiddenItemsState: HiddenItemsState
     public var selectedAdditionalCategoryIds: Set<Int>
     public var hiddenPsaPeerId: EnginePeer.Id?
     public var foundPeers: [(EnginePeer, EnginePeer?)]
@@ -264,7 +280,7 @@ public struct ChatListNodeState: Equatable {
         peerInputActivities: ChatListNodePeerInputActivities?,
         pendingRemovalItemIds: Set<ItemId>,
         pendingClearHistoryPeerIds: Set<ItemId>,
-        hiddenItemShouldBeTemporaryRevealed: Bool,
+        hiddenItemsState: HiddenItemsState,
         hiddenPsaPeerId: EnginePeer.Id?,
         selectedThreadIds: Set<Int64>,
         archiveStoryState: StoryState?
@@ -279,7 +295,7 @@ public struct ChatListNodeState: Equatable {
         self.peerInputActivities = peerInputActivities
         self.pendingRemovalItemIds = pendingRemovalItemIds
         self.pendingClearHistoryPeerIds = pendingClearHistoryPeerIds
-        self.hiddenItemShouldBeTemporaryRevealed = hiddenItemShouldBeTemporaryRevealed
+        self.hiddenItemsState = hiddenItemsState
         self.hiddenPsaPeerId = hiddenPsaPeerId
         self.selectedThreadIds = selectedThreadIds
         self.archiveStoryState = archiveStoryState
@@ -316,7 +332,7 @@ public struct ChatListNodeState: Equatable {
         if lhs.pendingClearHistoryPeerIds != rhs.pendingClearHistoryPeerIds {
             return false
         }
-        if lhs.hiddenItemShouldBeTemporaryRevealed != rhs.hiddenItemShouldBeTemporaryRevealed {
+        if lhs.hiddenItemsState != rhs.hiddenItemsState {
             return false
         }
         if lhs.hiddenPsaPeerId != rhs.hiddenPsaPeerId {
@@ -1253,7 +1269,30 @@ public final class ChatListNode: ListView {
             isSelecting = true
         }
         
-        self.currentState = ChatListNodeState(presentationData: ChatListPresentationData(theme: theme, fontSize: fontSize, strings: strings, dateTimeFormat: dateTimeFormat, nameSortOrder: nameSortOrder, nameDisplayOrder: nameDisplayOrder, disableAnimations: disableAnimations), editing: isSelecting, peerIdWithRevealedOptions: nil, selectedPeerIds: Set(), foundPeers: [], selectedPeerMap: [:], selectedAdditionalCategoryIds: Set(), peerInputActivities: nil, pendingRemovalItemIds: Set(), pendingClearHistoryPeerIds: Set(), hiddenItemShouldBeTemporaryRevealed: false, hiddenPsaPeerId: nil, selectedThreadIds: Set(), archiveStoryState: nil)
+        self.currentState = ChatListNodeState(
+            presentationData: ChatListPresentationData(
+                theme: theme,
+                fontSize: fontSize,
+                strings: strings,
+                dateTimeFormat: dateTimeFormat,
+                nameSortOrder: nameSortOrder,
+                nameDisplayOrder: nameDisplayOrder,
+                disableAnimations: disableAnimations
+            ),
+            editing: isSelecting,
+            peerIdWithRevealedOptions: nil,
+            selectedPeerIds: Set(),
+            foundPeers: [],
+            selectedPeerMap: [:],
+            selectedAdditionalCategoryIds: Set(),
+            peerInputActivities: nil,
+            pendingRemovalItemIds: Set(),
+            pendingClearHistoryPeerIds: Set(),
+            hiddenItemsState: .hidden,
+            hiddenPsaPeerId: nil,
+            selectedThreadIds: Set(),
+            archiveStoryState: nil
+        )
         self.statePromise = ValuePromise(self.currentState, ignoreRepeated: true)
         
         self.theme = theme
@@ -2336,13 +2375,17 @@ public final class ChatListNode: ListView {
                 if doesIncludeRemovingPeerId != didIncludeRemovingPeerId {
                     disableAnimations = false
                 }
-                if hideArchivedFolderByDefault && previousState.hiddenItemShouldBeTemporaryRevealed != state.hiddenItemShouldBeTemporaryRevealed && doesIncludeArchive {
+                if
+                    hideArchivedFolderByDefault &&
+                    doesIncludeArchive &&
+                    previousState.hiddenItemsState != state.hiddenItemsState
+                {
                     disableAnimations = false
                 }
                 if didIncludeHiddenByDefaultArchive != doesIncludeHiddenByDefaultArchive {
                     disableAnimations = false
                 }
-                if previousState.hiddenItemShouldBeTemporaryRevealed != state.hiddenItemShouldBeTemporaryRevealed && doesIncludeHiddenThread {
+                if previousState.hiddenItemsState != state.hiddenItemsState && doesIncludeHiddenThread {
                     disableAnimations = false
                 }
                 if didIncludeHiddenThread != doesIncludeHiddenThread {
@@ -2434,10 +2477,10 @@ public final class ChatListNode: ListView {
                         }
                     }
                 }
-                if !isHiddenItemVisible && strongSelf.currentState.hiddenItemShouldBeTemporaryRevealed {
+                if !isHiddenItemVisible && strongSelf.currentState.hiddenItemsState == .temporaryRevealed {
                     strongSelf.updateState { state in
                         var state = state
-                        state.hiddenItemShouldBeTemporaryRevealed = false
+                        state.hiddenItemsState = .hidden
                         return state
                     }
                 }
@@ -2810,6 +2853,7 @@ public final class ChatListNode: ListView {
                 return
             }
             let _ = strongSelf.contentScrollingEnded?(strongSelf)
+            // TODO: DID END SCROLL
             let revealHiddenItems: Bool
             switch strongSelf.visibleContentOffset() {
                 case .none, .unknown:
@@ -2817,7 +2861,7 @@ public final class ChatListNode: ListView {
                 case let .known(value):
                     revealHiddenItems = value <= -strongSelf.tempTopInset - 60.0
             }
-            if !revealHiddenItems && strongSelf.currentState.hiddenItemShouldBeTemporaryRevealed {
+            if !revealHiddenItems && strongSelf.currentState.hiddenItemsState == .temporaryRevealed {
                 /*strongSelf.updateState { state in
                     var state = state
                     state.hiddenItemShouldBeTemporaryRevealed = false
@@ -2855,9 +2899,10 @@ public final class ChatListNode: ListView {
                         revealHiddenItems = value <= -strongSelf.tempTopInset - 60.0
                     }
             }
+            // TODO: VISIBLE CONTENT CHANGED
             strongSelf.scrolledAtTopValue = atTop
             strongSelf.contentOffsetChanged?(offset)
-            if revealHiddenItems && !strongSelf.currentState.hiddenItemShouldBeTemporaryRevealed {
+            if revealHiddenItems && strongSelf.currentState.hiddenItemsState == .hidden {
                 //strongSelf.revealScrollHiddenItem()
             }
         }
@@ -2889,9 +2934,13 @@ public final class ChatListNode: ListView {
             self.resetFilter()
         }
     }
+
+    func hiddenItemsRevealState() -> Bool {
+        return false
+    }
     
     func hasItemsToBeRevealed() -> Bool {
-        if self.currentState.hiddenItemShouldBeTemporaryRevealed {
+        if self.currentState.hiddenItemsState == .temporaryRevealed {
             return false
         }
         var isHiddenItemVisible = false
@@ -2912,6 +2961,35 @@ public final class ChatListNode: ListView {
         
         return isHiddenItemVisible
     }
+
+    func hideScrollHiddenItem() {
+        var isHiddenItemVisible = false
+        self.forEachItemNode({ itemNode in
+            if let itemNode = itemNode as? ChatListItemNode, let item = itemNode.item {
+                if case let .peer(peerData) = item.content, let threadInfo = peerData.threadInfo {
+                    if threadInfo.isHidden {
+                        isHiddenItemVisible = true
+                    }
+                }
+                if case let .groupReference(groupReference) = item.content {
+                    if groupReference.hiddenByDefault {
+                        isHiddenItemVisible = true
+                    }
+                }
+            }
+        })
+        if isHiddenItemVisible && self.currentState.hiddenItemsState == .temporaryRevealed {
+            if self.hapticFeedback == nil {
+                self.hapticFeedback = HapticFeedback()
+            }
+            self.hapticFeedback?.tap()
+            self.updateState { state in
+                var state = state
+                state.hiddenItemsState = .hidden
+                return state
+            }
+        }
+    }
     
     func revealScrollHiddenItem() {
         var isHiddenItemVisible = false
@@ -2929,14 +3007,14 @@ public final class ChatListNode: ListView {
                 }
             }
         })
-        if isHiddenItemVisible && !self.currentState.hiddenItemShouldBeTemporaryRevealed {
+        if isHiddenItemVisible && self.currentState.hiddenItemsState == .hidden {
             if self.hapticFeedback == nil {
                 self.hapticFeedback = HapticFeedback()
             }
             self.hapticFeedback?.impact(.medium)
             self.updateState { state in
                 var state = state
-                state.hiddenItemShouldBeTemporaryRevealed = true
+                state.hiddenItemsState = .temporaryRevealed
                 return state
             }
         }
