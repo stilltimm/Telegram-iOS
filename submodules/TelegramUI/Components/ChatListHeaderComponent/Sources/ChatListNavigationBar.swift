@@ -558,7 +558,7 @@ public final class ChatListNavigationBar: Component {
                 
                 if component.isSearchActive != (headerContentView.alpha == 0.0) {
                     headerContentView.alpha = component.isSearchActive ? 0.0 : 1.0
-                    
+
                     if !transition.animation.isImmediate {
                         if component.isSearchActive {
                             headerContentView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.14)
@@ -689,6 +689,14 @@ public final class ChatListNavigationBar: Component {
                     addSubview(archiveCoverNode.view)
                 }
 
+                if let mappedArchiveCoverNode = archiveCoverNode as? ChatListArchiveCoverNode {
+                    mappedArchiveCoverNode.updateLayout(
+                        size: archiveCoverFrame.size,
+                        leftInset: component.sideInset,
+                        rightInset: component.sideInset,
+                        transition: archiveCoverNodeTransition
+                    )
+                }
                 archiveCoverNodeTransition.setFrameWithAdditivePosition(
                     view: archiveCoverNode.view,
                     frame: archiveCoverFrame.offsetBy(
