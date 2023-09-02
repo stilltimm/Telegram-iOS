@@ -4,6 +4,7 @@ import AsyncDisplayKit
 import Display
 import ComponentFlow
 import TelegramPresentationData
+import AnimationUI
 
 public final class ChatListArchiveCoverNode: ASDisplayNode {
     private let hintFont = Font.bold(17.0)
@@ -18,12 +19,15 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
     private let focusBackgroundNode = LinearGradientNode()
 
     private let pullDownToRevealWrapperNode = ASDisplayNode()
+    private let releaseToRevealWrapperMaskNode = ASDisplayNode()
     private let releaseToRevealWrapperNode = ASDisplayNode()
     private let pullDownToRevealHintTextNode = TextNode()
     private let releaseToRevealHintTextNode = TextNode()
 
     private let focusCircleContainerNode = ASDisplayNode()
     private let focusCircleNode = ASDisplayNode()
+    private let archiveCoverAnimationNode = AnimationNode(animation: "anim_archiveCover")
+    private let archiveCoverFocusAnimationNode = AnimationNode(animation: "anim_archiveCoverFocus")
 
     // MARK: - State
 
@@ -31,7 +35,7 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
     private let pullDownToRevealHint = "Swipe down for archive"
     private let releaseToRevealHint = "Release for archive"
 
-    // TODO: Use theme background
+    // TODO: Use theme colors
     private let nonFocusColor1: UIColor = .dynamic(
         light: UIColor(
             displayP3Red: 178 / 255,
@@ -96,10 +100,13 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         addSubnode(focusBackgroundNode)
         addSubnode(pullDownToRevealWrapperNode)
         pullDownToRevealWrapperNode.addSubnode(pullDownToRevealHintTextNode)
-        addSubnode(releaseToRevealWrapperNode)
+        addSubnode(releaseToRevealWrapperMaskNode)
+        releaseToRevealWrapperMaskNode.addSubnode(releaseToRevealWrapperNode)
         releaseToRevealWrapperNode.addSubnode(releaseToRevealHintTextNode)
         addSubnode(focusCircleContainerNode)
         addSubnode(focusCircleNode)
+        focusCircleNode.addSubnode(archiveCoverAnimationNode)
+        focusCircleNode.addSubnode(archiveCoverFocusAnimationNode)
 
         backgroundNode.colors = [nonFocusColor1, nonFocusColor2]
         backgroundNode.locations = [0, 1]
@@ -112,12 +119,15 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
 
         pullDownToRevealWrapperNode.alpha = 1.0
         releaseToRevealWrapperNode.alpha = 0.0
+        releaseToRevealWrapperMaskNode.clipsToBounds = true
 
         focusCircleContainerNode.cornerRadius = focusCircleSize.width / 2
-        focusCircleNode.cornerRadius = focusCircleSize.width / 2
+        focusCircleNode.view.transform = CGAffineTransform(rotationAngle: CGFloat.pi)
 
         focusCircleContainerNode.backgroundColor = focusCircleContainerColor
-        focusCircleNode.backgroundColor = focusCircleColor
+        focusCircleNode.backgroundColor = .clear
+
+        archiveCoverFocusAnimationNode.view.alpha = 0.0
 
         self.clipsToBounds = true
     }
@@ -199,22 +209,6 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
 
         let backgroundFrame = CGRect(origin: .zero, size: size)
 
-        let pullDownToRevealHintFrame = CGRect(
-            origin: CGPoint(
-                x: (size.width - pullDownToRevealLabelSize.width) / 2,
-                y: size.height - verticalInset - pullDownToRevealLabelSize.height
-            ),
-            size: pullDownToRevealLabelSize
-        )
-
-        let releaseToRevealHintFrame = CGRect(
-            origin: CGPoint(
-                x: (size.width - releaseToRevealLabelSize.width) / 2,
-                y: size.height - verticalInset - releaseToRevealLabelSize.height
-            ),
-            size: releaseToRevealLabelSize
-        )
-
         let focusCircleOriginX = leftInset + avatarLeftInset + (avatarSize.width - focusCircleSize.width) / 2
         let focusCircleContainerFrame = CGRect(
             origin: CGPoint(
@@ -235,18 +229,59 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
             size: focusCircleSize
         )
 
+        let animationFrame = CGRect(
+            origin: CGPoint(
+                x: (focusCircleSize.width - avatarSize.width) / 2,
+                y: (focusCircleSize.height - avatarSize.height) / 2 - 4 // magic number to adjust circle position
+            ),
+            size: avatarSize
+        )
+
+        let pullDownToRevealWrapperFrame = CGRect(
+            origin: CGPoint(
+                x: (size.width - pullDownToRevealLabelSize.width) / 2,
+                y: size.height - verticalInset - pullDownToRevealLabelSize.height
+            ),
+            size: pullDownToRevealLabelSize
+        )
+        var pullDownToRevealHintFrame = pullDownToRevealWrapperFrame
+        pullDownToRevealHintFrame.origin = .zero
+
+        let releaseToRevealMaskFrame = CGRect(
+            origin: CGPoint(
+                x: focusCircleFrame.midX,
+                y: size.height - verticalInset - releaseToRevealLabelSize.height
+            ),
+            size: CGSize(
+                width: size.width - focusCircleFrame.midX,
+                height: releaseToRevealLabelSize.height
+            )
+        )
+        var releaseToRevealWrapperFrame = releaseToRevealMaskFrame
+        releaseToRevealWrapperFrame.origin = .zero
+        let releaseToRevealHintFrame = CGRect(
+            origin: CGPoint(
+                x: (size.width - releaseToRevealLabelSize.width) / 2 - focusCircleFrame.midX,
+                y: 0
+            ),
+            size: releaseToRevealLabelSize
+        )
+
         // MARK: - Update Frames
 
         backgroundNode.frame = backgroundFrame
         focusBackgroundNode.frame = focusCircleFrame
 
-        pullDownToRevealWrapperNode.frame = pullDownToRevealHintFrame
-        pullDownToRevealHintTextNode.frame = CGRect(origin: .zero, size: pullDownToRevealHintFrame.size)
-        releaseToRevealWrapperNode.frame = releaseToRevealHintFrame
-        releaseToRevealHintTextNode.frame = CGRect(origin: .zero, size: releaseToRevealHintFrame.size)
+        pullDownToRevealWrapperNode.frame = pullDownToRevealWrapperFrame
+        pullDownToRevealHintTextNode.frame = pullDownToRevealHintFrame
+        releaseToRevealWrapperMaskNode.frame = releaseToRevealMaskFrame
+        releaseToRevealWrapperNode.frame = releaseToRevealWrapperFrame
+        releaseToRevealHintTextNode.frame = releaseToRevealHintFrame
 
         focusCircleContainerNode.frame = focusCircleContainerFrame
         focusCircleNode.frame = focusCircleFrame
+        archiveCoverAnimationNode.frame = animationFrame
+        archiveCoverFocusAnimationNode.frame = animationFrame
 
         // MARK: - Threshold pass animation
 
@@ -272,9 +307,9 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
             }
 
             UIView.animate(
-                withDuration: 0.45,
+                withDuration: 0.4,
                 delay: 0.0,
-                usingSpringWithDamping: 0.7,
+                usingSpringWithDamping: 0.78,
                 initialSpringVelocity: 0.0,
                 options: [.beginFromCurrentState, .allowAnimatedContent, .allowUserInteraction]
             ) {
@@ -282,6 +317,12 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
                     scaleX: focusBackgroundSizeFactor,
                     y: focusBackgroundSizeFactor
                 ) : .identity
+                self.focusCircleNode.view.transform = hasPassedThreshold ? CGAffineTransform(
+                    rotationAngle: -2 * CGFloat.pi
+                ) : CGAffineTransform(
+                    rotationAngle: CGFloat.pi
+                )
+                self.archiveCoverFocusAnimationNode.view.alpha = hasPassedThreshold ? 1.0 : 0.0
 
                 self.pullDownToRevealWrapperNode.view.alpha = hasPassedThreshold ? 0.0 : 1.0
                 self.releaseToRevealWrapperNode.view.alpha = hasPassedThreshold ? 1.0 : 0.0
