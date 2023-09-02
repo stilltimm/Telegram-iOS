@@ -694,7 +694,7 @@ public final class ChatListNavigationBar: Component {
                         size: archiveCoverFrame.size,
                         leftInset: component.sideInset,
                         rightInset: component.sideInset,
-                        transition: archiveCoverNodeTransition
+                        transition: archiveCoverNodeTransition.containedViewLayoutTransition
                     )
                 }
                 archiveCoverNodeTransition.setFrameWithAdditivePosition(

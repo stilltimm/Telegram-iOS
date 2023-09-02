@@ -6,7 +6,7 @@ import ComponentFlow
 import TelegramPresentationData
 
 public final class ChatListArchiveCoverNode: ASDisplayNode {
-    private let hintFont = Font.regular(17.0)
+    private let hintFont = Font.bold(17.0)
     public static let archiveCoverScrollHeight: CGFloat = {
         // TODO: Use properly calculated chat list item height
         return 77.0
@@ -14,6 +14,11 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
 
     // MARK: - Subnodes
 
+    private let backgroundNode = ASDisplayNode()
+    private let focusBackgroundNode = ASDisplayNode()
+
+    private let pullDownToRevealWrapperNode = ASDisplayNode()
+    private let releaseToRevealWrapperNode = ASDisplayNode()
     private let pullDownToRevealHintTextNode = TextNode()
     private let releaseToRevealHintTextNode = TextNode()
 
@@ -39,29 +44,37 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
     private let focusCircleColor: UIColor = .white
 
     private let verticalInset: CGFloat = 8.0
-    private let focusCircleSize = CGSize(width: 24.0, height: 24.0)
+    private let focusCircleSize = CGSize(width: 20.0, height: 20.0)
 
     // TODO: Inject avatar size
     private let avatarSize = CGSize(width: 60, height: 60)
     private let avatarLeftInset: CGFloat = 10.0
 
     private var hasPassedThreshold: Bool = false
-    private var thresholdPassTransition: Transition?
 
     // MARK: - Lifecycle
 
     override public func didLoad() {
         super.didLoad()
 
-        self.backgroundColor = nonFocusColor
+        self.backgroundColor = .clear
 
-        addSubnode(pullDownToRevealHintTextNode)
-        addSubnode(releaseToRevealHintTextNode)
+        addSubnode(backgroundNode)
+        addSubnode(focusBackgroundNode)
+        addSubnode(pullDownToRevealWrapperNode)
+        pullDownToRevealWrapperNode.addSubnode(pullDownToRevealHintTextNode)
+        addSubnode(releaseToRevealWrapperNode)
+        releaseToRevealWrapperNode.addSubnode(releaseToRevealHintTextNode)
         addSubnode(focusCircleContainerNode)
         addSubnode(focusCircleNode)
 
-        pullDownToRevealHintTextNode.alpha = 1.0
-        releaseToRevealHintTextNode.alpha = 0.0
+        backgroundNode.backgroundColor = nonFocusColor
+        focusBackgroundNode.backgroundColor = focusColor
+        focusBackgroundNode.alpha = 0.0
+        focusBackgroundNode.cornerRadius = focusCircleSize.width / 2
+
+        pullDownToRevealWrapperNode.alpha = 1.0
+        releaseToRevealWrapperNode.alpha = 0.0
 
         focusCircleContainerNode.cornerRadius = focusCircleSize.width / 2
         focusCircleNode.cornerRadius = focusCircleSize.width / 2
@@ -85,13 +98,19 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         size: CGSize,
         leftInset: CGFloat,
         rightInset: CGFloat,
-        transition: Transition
+        transition: ContainedViewLayoutTransition
     ) {
         // MARK: - Progress
 
         let fractionComplete: CGFloat = size.height / Self.archiveCoverScrollHeight
-        print("Progress: \(fractionComplete)")
-        let hasPassedThreshold = fractionComplete > 1.0
+        let hasPassedThreshold: Bool
+        if fractionComplete > 1.0 {
+            hasPassedThreshold = true
+        } else if fractionComplete < 0.95 {
+            hasPassedThreshold = false
+        } else {
+            hasPassedThreshold = self.hasPassedThreshold
+        }
 
         let constrainedLabelSize = CGSize(width: size.width, height: 100)
 
@@ -141,25 +160,23 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
 
         // MARK: - Frame updates
 
-        let pullDownToRevealHintFrameBelowThreshold = CGRect(
+        let backgroundFrame = CGRect(origin: .zero, size: size)
+
+        let pullDownToRevealHintFrame = CGRect(
             origin: CGPoint(
                 x: (size.width - pullDownToRevealLabelSize.width) / 2,
                 y: size.height - verticalInset - pullDownToRevealLabelSize.height
             ),
             size: pullDownToRevealLabelSize
         )
-        var pullDownToRevealHintFrameAfterThreshold = pullDownToRevealHintFrameBelowThreshold
-        pullDownToRevealHintFrameAfterThreshold.origin.x = size.width
 
-        let releaseToRevealHintFrameAfterThreshold = CGRect(
+        let releaseToRevealHintFrame = CGRect(
             origin: CGPoint(
                 x: (size.width - releaseToRevealLabelSize.width) / 2,
                 y: size.height - verticalInset - releaseToRevealLabelSize.height
             ),
             size: releaseToRevealLabelSize
         )
-        var releaseToRevealHintFrameBelowThreshold = releaseToRevealHintFrameAfterThreshold
-        releaseToRevealHintFrameBelowThreshold.origin.x = -releaseToRevealLabelSize.width
 
         let focusCircleOriginX = leftInset + avatarLeftInset + (avatarSize.width - focusCircleSize.width) / 2
         let focusCircleContainerFrame = CGRect(
@@ -181,91 +198,66 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
             size: focusCircleSize
         )
 
+        // MARK: - Update Frames
+
+        backgroundNode.frame = backgroundFrame
+        focusBackgroundNode.frame = focusCircleFrame
+
+        pullDownToRevealWrapperNode.frame = pullDownToRevealHintFrame
+        pullDownToRevealHintTextNode.frame = CGRect(origin: .zero, size: pullDownToRevealHintFrame.size)
+        releaseToRevealWrapperNode.frame = releaseToRevealHintFrame
+        releaseToRevealHintTextNode.frame = CGRect(origin: .zero, size: releaseToRevealHintFrame.size)
+
+        focusCircleContainerNode.frame = focusCircleContainerFrame
+        focusCircleNode.frame = focusCircleFrame
+
         // MARK: - Threshold pass animation
 
-        if hasPassedThreshold != self.hasPassedThreshold, self.thresholdPassTransition == nil {
-            let thresholdPassTransition = transition
-            self.thresholdPassTransition = thresholdPassTransition
+        if hasPassedThreshold != self.hasPassedThreshold {
             self.hasPassedThreshold = hasPassedThreshold
 
+            let focusBackgroundSizeFactor = 2 * size.width / focusCircleSize.width
+            let pullDownToRevealTranslation = size.width - pullDownToRevealHintFrame.minX
+            let releaseToRevealTranslation = -releaseToRevealHintFrame.maxX
             if hasPassedThreshold {
-                thresholdPassTransition.setBackgroundColor(layer: self.layer, color: focusColor)
-                thresholdPassTransition.animateAlpha(
-                    layer: pullDownToRevealHintTextNode.layer,
-                    from: 1.0,
-                    to: 0.0
-                )
-                thresholdPassTransition.animateAlpha(
-                    layer: releaseToRevealHintTextNode.layer,
-                    from: 0.0,
-                    to: 1.0
-                )
-
-                thresholdPassTransition.containedViewLayoutTransition.animateFrame(
-                    node: pullDownToRevealHintTextNode,
-                    from: pullDownToRevealHintFrameBelowThreshold,
-                    to: pullDownToRevealHintFrameAfterThreshold
-                )
-                thresholdPassTransition.containedViewLayoutTransition.animateFrame(
-                    node: releaseToRevealHintTextNode,
-                    from: releaseToRevealHintFrameBelowThreshold,
-                    to: releaseToRevealHintFrameAfterThreshold
+                focusBackgroundNode.alpha = 1.0
+                pullDownToRevealWrapperNode.view.transform = .identity
+                releaseToRevealWrapperNode.view.transform = CGAffineTransform(
+                    translationX: releaseToRevealTranslation,
+                    y: 0.0
                 )
             } else {
-                thresholdPassTransition.setBackgroundColor(layer: self.layer, color: nonFocusColor)
-                thresholdPassTransition.animateAlpha(
-                    layer: pullDownToRevealHintTextNode.layer,
-                    from: 0.0,
-                    to: 1.0
+                pullDownToRevealWrapperNode.view.transform = CGAffineTransform(
+                    translationX: pullDownToRevealTranslation,
+                    y: 0.0
                 )
-                thresholdPassTransition.animateAlpha(
-                    layer: releaseToRevealHintTextNode.layer,
-                    from: 1.0,
-                    to: 0.0
-                )
-
-                thresholdPassTransition.containedViewLayoutTransition.animateFrame(
-                    node: pullDownToRevealHintTextNode,
-                    from: pullDownToRevealHintFrameBelowThreshold,
-                    to: pullDownToRevealHintFrameAfterThreshold
-                )
-                thresholdPassTransition.containedViewLayoutTransition.animateFrame(
-                    node: releaseToRevealHintTextNode,
-                    from: releaseToRevealHintFrameBelowThreshold,
-                    to: releaseToRevealHintFrameAfterThreshold
-                )
+                releaseToRevealWrapperNode.view.transform = .identity
             }
-        } else {
-            if hasPassedThreshold {
-                transition.containedViewLayoutTransition.updateBackgroundColor(node: self, color: focusColor)
-                transition.containedViewLayoutTransition.updateAlpha(node: pullDownToRevealHintTextNode, alpha: 0.0)
-                transition.containedViewLayoutTransition.updateAlpha(node: releaseToRevealHintTextNode, alpha: 1.0)
 
-                transition.containedViewLayoutTransition.updateFrame(
-                    node: pullDownToRevealHintTextNode,
-                    frame: pullDownToRevealHintFrameAfterThreshold
-                )
-                transition.containedViewLayoutTransition.updateFrame(
-                    node: releaseToRevealHintTextNode,
-                    frame: releaseToRevealHintFrameAfterThreshold
-                )
-            } else {
-                transition.containedViewLayoutTransition.updateBackgroundColor(node: self, color: nonFocusColor)
-                transition.containedViewLayoutTransition.updateAlpha(node: pullDownToRevealHintTextNode, alpha: 1.0)
-                transition.containedViewLayoutTransition.updateAlpha(node: releaseToRevealHintTextNode, alpha: 0.0)
+            UIView.animate(
+                withDuration: 0.3,
+                delay: 0.0,
+                usingSpringWithDamping: 0.8,
+                initialSpringVelocity: 0.0,
+                options: [.beginFromCurrentState, .allowAnimatedContent, .allowUserInteraction]
+            ) {
+                self.focusBackgroundNode.view.transform = hasPassedThreshold ? CGAffineTransform(
+                    scaleX: focusBackgroundSizeFactor,
+                    y: focusBackgroundSizeFactor
+                ) : .identity
 
-                transition.containedViewLayoutTransition.updateFrame(
-                    node: pullDownToRevealHintTextNode,
-                    frame: pullDownToRevealHintFrameBelowThreshold
-                )
-                transition.containedViewLayoutTransition.updateFrame(
-                    node: releaseToRevealHintTextNode,
-                    frame: releaseToRevealHintFrameBelowThreshold
+                self.pullDownToRevealWrapperNode.view.alpha = hasPassedThreshold ? 0.0 : 1.0
+                self.releaseToRevealWrapperNode.view.alpha = hasPassedThreshold ? 1.0 : 0.0
+
+                self.pullDownToRevealWrapperNode.view.transform = hasPassedThreshold ? CGAffineTransform(
+                    translationX: pullDownToRevealTranslation,
+                    y: 0.0
+                ) : .identity
+                self.releaseToRevealWrapperNode.view.transform = hasPassedThreshold ? .identity : CGAffineTransform(
+                    translationX: releaseToRevealTranslation,
+                    y: 0.0
                 )
             }
         }
-
-        transition.containedViewLayoutTransition.updateFrame(node: focusCircleContainerNode, frame: focusCircleContainerFrame)
-        transition.containedViewLayoutTransition.updateFrame(node: focusCircleNode, frame: focusCircleFrame)
     }
 }
