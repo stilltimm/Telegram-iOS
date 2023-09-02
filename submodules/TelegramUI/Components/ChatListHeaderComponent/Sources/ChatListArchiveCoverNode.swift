@@ -14,8 +14,8 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
 
     // MARK: - Subnodes
 
-    private let backgroundNode = ASDisplayNode()
-    private let focusBackgroundNode = ASDisplayNode()
+    private let backgroundNode = LinearGradientNode()
+    private let focusBackgroundNode = LinearGradientNode()
 
     private let pullDownToRevealWrapperNode = ASDisplayNode()
     private let releaseToRevealWrapperNode = ASDisplayNode()
@@ -31,12 +31,45 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
     private let pullDownToRevealHint = "Swipe down for archive"
     private let releaseToRevealHint = "Release for archive"
 
-    // TODO: Use gradient background
-    private let nonFocusColor: UIColor = UIColor(white: 0.75, alpha: 1.0)
-    private let focusColor: UIColor = UIColor(
-        displayP3Red: 90 / 255,
-        green: 150 / 255,
-        blue: 241 / 255,
+    // TODO: Use theme background
+    private let nonFocusColor1: UIColor = .dynamic(
+        light: UIColor(
+            displayP3Red: 178 / 255,
+            green: 183 / 255,
+            blue: 189 / 255,
+            alpha: 1.0
+        ),
+        dark: UIColor(
+            displayP3Red: 58 / 255,
+            green: 63 / 255,
+            blue: 69 / 255,
+            alpha: 1.0
+        )
+    )
+    private let nonFocusColor2: UIColor = .dynamic(
+        light: UIColor(
+            displayP3Red: 218 / 255,
+            green: 218 / 255,
+            blue: 223 / 255,
+            alpha: 1.0
+        ),
+        dark: UIColor(
+            displayP3Red: 88 / 255,
+            green: 88 / 255,
+            blue: 93 / 255,
+            alpha: 1.0
+        )
+    )
+    private let focusColor1: UIColor = UIColor(
+        displayP3Red: 60 / 255,
+        green: 132 / 255,
+        blue: 235 / 255,
+        alpha: 1.0
+    )
+    private let focusColor2: UIColor = UIColor(
+        displayP3Red: 138 / 255,
+        green: 196 / 255,
+        blue: 250 / 255,
         alpha: 1.0
     )
     private let hintColor: UIColor = .white
@@ -68,10 +101,14 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         addSubnode(focusCircleContainerNode)
         addSubnode(focusCircleNode)
 
-        backgroundNode.backgroundColor = nonFocusColor
-        focusBackgroundNode.backgroundColor = focusColor
+        backgroundNode.colors = [nonFocusColor1, nonFocusColor2]
+        backgroundNode.locations = [0, 1]
+
+        focusBackgroundNode.colors = [focusColor1, focusColor2]
+        focusBackgroundNode.locations = [0, 1]
         focusBackgroundNode.alpha = 0.0
         focusBackgroundNode.cornerRadius = focusCircleSize.width / 2
+        focusBackgroundNode.layer.masksToBounds = true
 
         pullDownToRevealWrapperNode.alpha = 1.0
         releaseToRevealWrapperNode.alpha = 0.0
@@ -235,9 +272,9 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
             }
 
             UIView.animate(
-                withDuration: 0.3,
+                withDuration: 0.45,
                 delay: 0.0,
-                usingSpringWithDamping: 0.8,
+                usingSpringWithDamping: 0.7,
                 initialSpringVelocity: 0.0,
                 options: [.beginFromCurrentState, .allowAnimatedContent, .allowUserInteraction]
             ) {
@@ -260,4 +297,102 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
             }
         }
     }
+}
+
+private final class LinearGradientNode: ASDisplayNode {
+    private let gradientLayer: CAGradientLayer = {
+        let layer = CAGradientLayer()
+        layer.anchorPoint = CGPoint()
+        layer.startPoint = .zero
+        layer.endPoint = CGPoint(x: 1.0, y: 0.0)
+        return layer
+    }()
+
+    override var frame: CGRect {
+        didSet {
+            updateGradientFrame()
+        }
+    }
+    override var bounds: CGRect {
+        didSet {
+            updateGradientFrame()
+        }
+    }
+    var endPoint: CGPoint {
+        get { gradientLayer.endPoint }
+        set { gradientLayer.endPoint = newValue }
+    }
+    var startPoint: CGPoint {
+        get { gradientLayer.endPoint }
+        set { gradientLayer.endPoint = newValue }
+    }
+    var locations: [NSNumber] {
+        get { gradientLayer.locations ?? [] }
+        set { gradientLayer.locations = newValue }
+    }
+    var colors: [UIColor] = [] {
+        didSet {
+            updateColors()
+        }
+    }
+
+    override func didLoad() {
+        super.didLoad()
+
+        self.backgroundColor = .clear
+        self.layer.addSublayer(gradientLayer)
+        updateGradientFrame()
+        updateColors()
+    }
+
+    override func asyncTraitCollectionDidChange() {
+        super.asyncTraitCollectionDidChange()
+
+        updateColors()
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        let spec = ASLayoutSpec()
+        let size = CGSize(
+            width: constrainedSize.max.width,
+            height: constrainedSize.max.height
+        )
+        spec.style.preferredSize = size
+        return spec
+    }
+
+    private func updateColors() {
+        gradientLayer.colors = colors.map { color in
+            if #available(iOS 13.0, *) {
+                return color.resolvedColor(with: self.view.traitCollection ).cgColor
+            } else {
+                return color.cgColor
+            }
+        }
+    }
+
+    private func updateGradientFrame() {
+        CATransaction.setDisableActions(true)
+        gradientLayer.frame = CGRect(origin: .zero, size: bounds.size)
+        CATransaction.setDisableActions(false)
+    }
+}
+
+private extension UIColor {
+    static func dynamic(light: UIColor, dark: UIColor) -> UIColor {
+        if #available(iOS 13.0, *) {
+            return UIColor(dynamicProvider: { traitCollection in
+                switch traitCollection.userInterfaceStyle {
+                case .dark:
+                    return dark
+                case .light, .unspecified:
+                    return light
+                @unknown default:
+                    return light
+                }
+            })
+        } else {
+            return light
+        }
+    }   
 }
