@@ -2153,11 +2153,17 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
                 }
             }
         }
+
+        var _allowOverscrollItemExpansion: Bool = self.allowOverscrollItemExpansion
+        if !self.mainContainerNode.currentItemNode.startedScrollingAtUpperBound {
+            _allowOverscrollItemExpansion = false
+        }
         
         if let navigationBarComponentView = self.navigationBarView.view as? ChatListNavigationBar.View {
             navigationBarComponentView.applyScroll(
                 offset: offset,
                 allowAvatarsExpansion: allowAvatarsExpansion,
+                allowOverscrollItemExpansion: _allowOverscrollItemExpansion,
                 forceUpdate: false,
                 transition: Transition(transition)
                     .withUserData(
@@ -2435,6 +2441,7 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
             navigationBarComponentView.applyScroll(
                 offset: 0.0,
                 allowAvatarsExpansion: false,
+                allowOverscrollItemExpansion: false,
                 transition: Transition(animation: .curve(duration: 0.3, curve: .slide))
             )
         }

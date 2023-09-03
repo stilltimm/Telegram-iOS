@@ -399,6 +399,7 @@ final class ContactsControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
             navigationBarComponentView.applyScroll(
                 offset: offset,
                 allowAvatarsExpansion: false,
+                allowOverscrollItemExpansion: false,
                 transition: Transition(transition)
             )
         }

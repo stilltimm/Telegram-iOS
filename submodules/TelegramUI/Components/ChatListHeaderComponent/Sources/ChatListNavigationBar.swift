@@ -161,11 +161,11 @@ public final class ChatListNavigationBar: Component {
     public static let storiesLockThreshold: CGFloat = 61.0
     public static let searchHorizontalInset: CGFloat = 6.0
     public static let searchScrollHeight: CGFloat = 52.0
+    public static let maximumOverscrollHeightDeltaToPreventJump: CGFloat = 15.0
     public static let tabsHeight: CGFloat = 46.0
     public static let storiesScrollHeight: CGFloat = {
         return 83.0
     }()
-    public static let rubberBandAmplitude: CGFloat = 100
     public static func minArchiveCoverThreshold(
         statusBarHeight: CGFloat,
         hasTabs: Bool,
@@ -202,6 +202,11 @@ public final class ChatListNavigationBar: Component {
         private var currentLayout: CurrentLayout?
         private var rawScrollOffset: CGFloat?
         private var currentAllowAvatarsExpansion: Bool = false
+        private var currentAllowOverscrollItemsExpansion: Bool = false
+        private var currentOverscrollHeight: CGFloat = 0.0
+        private var currentOverscrollAllowedOrOverscrollIsVisible: Bool {
+            return currentAllowOverscrollItemsExpansion || (currentOverscrollHeight > 0.0)
+        }
         public private(set) var clippedScrollOffset: CGFloat?
         
         public var deferScrollApplication: Bool = false
@@ -256,6 +261,7 @@ public final class ChatListNavigationBar: Component {
                 self.applyScroll(
                     offset: rawScrollOffset,
                     allowAvatarsExpansion: self.currentAllowAvatarsExpansion,
+                    allowOverscrollItemExpansion: self.currentAllowOverscrollItemsExpansion,
                     transition: transition
                 )
             }
@@ -264,6 +270,7 @@ public final class ChatListNavigationBar: Component {
         public func applyScroll(
             offset: CGFloat,
             allowAvatarsExpansion: Bool,
+            allowOverscrollItemExpansion: Bool,
             forceUpdate: Bool = false,
             transition: Transition
         ) {
@@ -272,6 +279,8 @@ public final class ChatListNavigationBar: Component {
             self.rawScrollOffset = offset
             let allowAvatarsExpansionUpdated = self.currentAllowAvatarsExpansion != allowAvatarsExpansion
             self.currentAllowAvatarsExpansion = allowAvatarsExpansion
+            let allowOverscrollExpansionUpdated = self.currentAllowOverscrollItemsExpansion != allowOverscrollItemExpansion
+            self.currentAllowOverscrollItemsExpansion = allowOverscrollItemExpansion
             
             if self.deferScrollApplication && !forceUpdate {
                 self.hasDeferredScrollOffset = true
@@ -289,12 +298,21 @@ public final class ChatListNavigationBar: Component {
 
             // MARK: - Decrease content height
 
-            let overflowHeight = self.overflowHeight(
+            var overflowHeight = self.overflowHeight(
                 for: component,
+                allowOverscrollItemExpansion: self.currentOverscrollAllowedOrOverscrollIsVisible,
                 contentOffset: offset
             )
+            // NOTE: This check is added to prevent jumping when rapidly scrolling close to the top
+            let maximumDelta = ChatListNavigationBar.maximumOverscrollHeightDeltaToPreventJump
+            if self.currentOverscrollHeight == 0.0, overflowHeight >= maximumDelta {
+                overflowHeight = 0.0
+            } else {
+                self.currentOverscrollHeight = overflowHeight
+            }
+
             if !forceUpdate, component.isMainTab {
-                let contentHeight = expectedContentHeight(for: component, contentOffset: offset)
+                let contentHeight = expectedContentHeight(for: component, overflowHeight: overflowHeight)
                 self.currentLayout = CurrentLayout(
                     size: CGSize(
                         width: currentLayoutWidth,
@@ -320,6 +338,7 @@ public final class ChatListNavigationBar: Component {
                     && !self.hasDeferredScrollOffset
                     && !forceUpdate
                     && !allowAvatarsExpansionUpdated
+                    && !allowOverscrollExpansionUpdated
             {
                 return
             }
@@ -816,10 +835,22 @@ public final class ChatListNavigationBar: Component {
                 self.backgroundView.updateColor(color: component.theme.rootController.navigationBar.blurredBackgroundColor, transition: .immediate)
                 self.separatorLayer.backgroundColor = component.theme.rootController.navigationBar.separatorColor.cgColor
             }
-            
+
+            var overflowHeight = overflowHeight(
+                for: component,
+                allowOverscrollItemExpansion: self.currentOverscrollAllowedOrOverscrollIsVisible,
+                contentOffset: self.rawScrollOffset
+            )
+            // NOTE: This check is added to prevent jumping when rapidly scrolling close to the top
+            let maximumDelta = ChatListNavigationBar.maximumOverscrollHeightDeltaToPreventJump
+            if self.currentOverscrollHeight == 0.0, overflowHeight >= maximumDelta {
+                overflowHeight = 0.0
+            } else {
+                self.currentOverscrollHeight = overflowHeight
+            }
             let contentHeight = expectedContentHeight(
                 for: component,
-                contentOffset: self.rawScrollOffset
+                overflowHeight: overflowHeight
             )
             
             let size = CGSize(width: availableSize.width, height: contentHeight)
@@ -832,6 +863,7 @@ public final class ChatListNavigationBar: Component {
                     self.applyScroll(
                         offset: rawScrollOffset,
                         allowAvatarsExpansion: self.currentAllowAvatarsExpansion,
+                        allowOverscrollItemExpansion: self.currentAllowOverscrollItemsExpansion,
                         forceUpdate: true,
                         transition: transition
                     )
@@ -843,7 +875,7 @@ public final class ChatListNavigationBar: Component {
 
         private func expectedContentHeight(
             for component: ChatListNavigationBar,
-            contentOffset: CGFloat?
+            overflowHeight: CGFloat?
         ) -> CGFloat {
             var contentHeight = component.statusBarHeight
 
@@ -868,13 +900,20 @@ public final class ChatListNavigationBar: Component {
                 contentHeight += component.accessoryPanelContainerHeight
             }
 
-            contentHeight -= overflowHeight(for: component, contentOffset: contentOffset)
+            if let overflowHeight {
+                contentHeight -= overflowHeight
+            }
 
             return contentHeight
         }
 
-        private func overflowHeight(for component: ChatListNavigationBar, contentOffset: CGFloat?) -> CGFloat {
+        private func overflowHeight(
+            for component: ChatListNavigationBar,
+            allowOverscrollItemExpansion: Bool,
+            contentOffset: CGFloat?
+        ) -> CGFloat {
             guard
+                allowOverscrollItemExpansion,
                 component.isMainTab,
                 !component.isSearchActive,
                 component.archiveCoverNode != nil,
