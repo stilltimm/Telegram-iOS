@@ -2558,7 +2558,6 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
             if self.draggingHiddenItemsState == .temporaryRevealedWhileDragging {
                 // NOTE: When dragging ends with the .temporaryRevealedWhileDragging state,
                 // change chatListNode hiddenItemsState to .temporaryRevealed
-                print("\n\nSTARTED TRANSITIONING")
                 self.draggingHiddenItemsState = .temporaryRevealed
 
                 if
@@ -2567,7 +2566,8 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
                     let chatListNode = listView as? ChatListNode
                 {
                     let archiveCoverScrollHeight = ChatListArchiveCoverNode.archiveCoverScrollHeight
-                    self.absoluteContentOffsetWhenReleased = archiveCoverNode.frame.height - archiveCoverScrollHeight
+                    self.absoluteContentOffsetWhenReleased = abs(chatListNode.scroller.contentOffset.y) - archiveCoverScrollHeight
+                    chatListNode.view.isUserInteractionEnabled = false
 
                     archiveCoverNode.transitionToArchiveReveal()
                     archiveCoverNode.applyTransitionToArchiveRevealProgress(progress: nil)
@@ -2597,9 +2597,9 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
                     let archiveCoverNode = navigationBarComponentView.archiveCoverNode as? ChatListArchiveCoverNode,
                     archiveCoverNode.isTransitioningToArchiveReveal,
                     absoluteContentOffsetWhenReleased > 0.0,
+                    let chatListNode = listView as? ChatListNode,
                     case let .known(value) = offset
                 {
-
                     let archiveCoverProgress = min(
                         1.0,
                         max(
@@ -2607,8 +2607,12 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
                             1.0 - abs(value) / absoluteContentOffsetWhenReleased
                         )
                     )
-                    print("S=\(ceil(value)),\tP=\(ceil(archiveCoverProgress * 100.0))")
                     archiveCoverNode.applyTransitionToArchiveRevealProgress(progress: archiveCoverProgress)
+                    if archiveCoverProgress >= 0.99 {
+                        archiveCoverNode.resetToInitialState()
+                        archiveCoverNode.view.frame = .zero
+                        chatListNode.view.isUserInteractionEnabled = true
+                    }
                 }
             }
         }

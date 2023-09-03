@@ -91,6 +91,9 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
 
     public private(set) var isTransitioningToArchiveReveal: Bool = false
     private var circleContainerFrameAtTheStartOfRevealTransition: CGRect?
+    private var frameAtTheStartOfRevealTransition: CGRect?
+    private var focusBackgroundFrameAtTheStartOfRevealTransition: CGRect?
+    private var focusCircleFrameAtTheStartOfRevealTransition: CGRect?
 
     // MARK: - Lifecycle
 
@@ -111,8 +114,22 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         focusCircleNode.addSubnode(archiveCoverAnimationNode)
         focusCircleNode.addSubnode(archiveCoverFocusAnimationNode)
 
+        self.clipsToBounds = true
+
+        resetToInitialState()
+    }
+
+    public func resetToInitialState() {
+        hasPassedThreshold = false
+        isTransitioningToArchiveReveal = false
+        frameAtTheStartOfRevealTransition = nil
+        circleContainerFrameAtTheStartOfRevealTransition = nil
+        focusBackgroundFrameAtTheStartOfRevealTransition = nil
+        focusCircleFrameAtTheStartOfRevealTransition = nil
+
         backgroundNode.colors = [nonFocusColor1, nonFocusColor2]
         backgroundNode.locations = [0, 1]
+        backgroundNode.alpha = 1.0
 
         focusBackgroundNode.colors = [focusColor1, focusColor2]
         focusBackgroundNode.locations = [0, 1]
@@ -124,15 +141,16 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         releaseToRevealWrapperNode.alpha = 0.0
         releaseToRevealWrapperMaskNode.clipsToBounds = true
 
+        focusCircleContainerNode.alpha = 1.0
         focusCircleContainerNode.cornerRadius = focusCircleSize.width / 2
-        focusCircleNode.view.transform = CGAffineTransform(rotationAngle: CGFloat.pi)
-
         focusCircleContainerNode.backgroundColor = focusCircleContainerColor
+
+        focusCircleNode.view.transform = CGAffineTransform(rotationAngle: CGFloat.pi)
         focusCircleNode.backgroundColor = .clear
 
+        archiveCoverAnimationNode.view.alpha = 1.0
         archiveCoverFocusAnimationNode.view.alpha = 0.0
-
-        self.clipsToBounds = true
+        archiveCoverFocusAnimationNode.setProgress(0.0)
     }
 
     override public func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
@@ -282,7 +300,6 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         // MARK: - Update Frames
 
         backgroundNode.frame = backgroundFrame
-        backgroundNode.view.alpha = 0.5
         focusBackgroundNode.frame = focusCircleFrame
 
         pullDownToRevealWrapperNode.frame = pullDownToRevealWrapperFrame
@@ -296,6 +313,11 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         archiveCoverAnimationNode.frame = animationFrame
         archiveCoverFocusAnimationNode.frame = animationFrame
 
+        self.frameAtTheStartOfRevealTransition = self.view.frame
+        self.circleContainerFrameAtTheStartOfRevealTransition = focusCircleContainerFrame
+        self.focusBackgroundFrameAtTheStartOfRevealTransition = focusCircleFrame
+        self.focusCircleFrameAtTheStartOfRevealTransition = focusCircleFrame
+
         // MARK: - Threshold pass animation
 
         if hasPassedThreshold != self.hasPassedThreshold {
@@ -306,7 +328,7 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
             let releaseToRevealTranslation = -releaseToRevealHintFrame.maxX
             CATransaction.setDisableActions(true)
             if hasPassedThreshold {
-                focusBackgroundNode.alpha = 0.5
+                focusBackgroundNode.alpha = 1.0
                 pullDownToRevealWrapperNode.view.transform = .identity
                 releaseToRevealWrapperNode.view.transform = CGAffineTransform(
                     translationX: releaseToRevealTranslation,
@@ -368,6 +390,8 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         }
     }
 
+    // MARK: - Archive reveal transition
+
     public func transitionToArchiveReveal() {
         guard self.hasPassedThreshold else {
             return
@@ -378,65 +402,156 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
 
     public func applyTransitionToArchiveRevealProgress(progress: CGFloat?) {
         let initialFocusBackgroundSizeFactor = 2 * bounds.width / focusCircleSize.width
-        guard let progress else {
+        guard
+            let progress,
+            let frameAtTheStartOfRevealTransition,
+            let circleContainerFrameAtTheStartOfRevealTransition,
+            let focusBackgroundFrameAtTheStartOfRevealTransition,
+            let focusCircleFrameAtTheStartOfRevealTransition
+        else {
+            // MARK: - Start of transition setup
+            CATransaction.setDisableActions(true)
+            backgroundNode.view.layer.removeAllAnimations()
             backgroundNode.alpha = 0.0
 
-            pullDownToRevealWrapperNode.alpha = 0.0
             pullDownToRevealWrapperNode.view.layer.removeAllAnimations()
+            pullDownToRevealWrapperNode.alpha = 0.0
             pullDownToRevealWrapperNode.view.transform = .identity
 
-            releaseToRevealWrapperNode.alpha = 1.0
             releaseToRevealWrapperNode.view.layer.removeAllAnimations()
+            releaseToRevealWrapperNode.alpha = 1.0
             releaseToRevealWrapperNode.view.transform = .identity
 
-            focusBackgroundNode.cornerRadius = focusCircleSize.width / 2
             focusBackgroundNode.view.layer.removeAllAnimations()
+            focusBackgroundNode.cornerRadius = focusCircleSize.width / 2
             focusBackgroundNode.view.transform = CGAffineTransform(
                 scaleX: initialFocusBackgroundSizeFactor,
                 y: initialFocusBackgroundSizeFactor
             )
+            CATransaction.setDisableActions(false)
 
-            circleContainerFrameAtTheStartOfRevealTransition = focusCircleContainerNode.frame
+            archiveCoverAnimationNode.alpha = 0.0
+            archiveCoverFocusAnimationNode.alpha = 1.0
+
             return
         }
 
+        // NOTE: Map linear progress to cubic progress to mimic ".easeOut" curve
+        let cubicProgress = easeOutCubic(x: progress)
+
         CATransaction.setDisableActions(true)
-        let focusBackgroundSizeTargetFactor = avatarSize.width / focusCircleSize.width
-        let focusBackgroundSizeFactor = focusBackgroundSizeTargetFactor + (1.0 - progress) * (initialFocusBackgroundSizeFactor - focusBackgroundSizeTargetFactor)
-        print("Progress = \(ceil(progress * 100.0)),\tFactor = \(ceil(1000.0 * focusBackgroundSizeFactor) / 1000.0)")
+
+        // MARK: - Interpolations / self.frame & background.frame
+
+        let updatedFrame = CGRect.interpolatedRect(
+            from: frameAtTheStartOfRevealTransition,
+            to: CGRect(
+                origin: frameAtTheStartOfRevealTransition.origin,
+                size: CGSize(
+                    width: frameAtTheStartOfRevealTransition.size.width,
+                    height: Self.archiveCoverScrollHeight
+                )
+            ),
+            with: progress
+        )
+        self.view.frame = updatedFrame
+
+        self.backgroundNode.view.frame = CGRect(origin: .zero, size: updatedFrame.size)
+
+        // MARK: - Interpolations / circleContainer
+
+        let updatedFocusContainerFrame = CGRect.interpolatedRect(
+            from: circleContainerFrameAtTheStartOfRevealTransition,
+            to: CGRect(
+                origin: CGPoint(
+                    x: circleContainerFrameAtTheStartOfRevealTransition.origin.x,
+                    y: (Self.archiveCoverScrollHeight - focusCircleSize.height) / 2.0
+                ),
+                size: focusCircleSize
+            ),
+            with: progress
+        )
+        focusCircleContainerNode.frame = updatedFocusContainerFrame
+
+        // MARK: - Interpolations / Focus background
+
+        let focusBackgroundTargetFrame = CGRect(
+            origin: CGPoint(
+                x: focusBackgroundFrameAtTheStartOfRevealTransition.origin.x,
+                y: (Self.archiveCoverScrollHeight - focusCircleSize.height) / 2.0
+            ),
+            size: focusCircleSize
+        )
+        let focusBackgroundFrame = CGRect.interpolatedRect(
+            from: focusBackgroundFrameAtTheStartOfRevealTransition,
+            to: focusBackgroundTargetFrame,
+            with: progress
+        )
+        focusBackgroundNode.frame = focusBackgroundFrame
+
+        let focusBackgroundSizeFactor = CGFloat.interpolatedValue(
+            from: initialFocusBackgroundSizeFactor,
+            to: avatarSize.width / focusCircleSize.width,
+            with: cubicProgress
+        )
         focusBackgroundNode.view.transform = CGAffineTransform(
             scaleX: focusBackgroundSizeFactor,
             y: focusBackgroundSizeFactor
         )
 
-        releaseToRevealWrapperNode.alpha = 1.0 - progress
+        // MARK: - Interpolations / focusCircleNode
 
-        if let initialFrame = circleContainerFrameAtTheStartOfRevealTransition {
-            let focusContainerProgress = min(1.0, progress * 2.0)
-            var updatedFocusContainerFrame = initialFrame
-            var updatedHeight = focusCircleSize.height + (1.0 - focusContainerProgress) * (updatedFocusContainerFrame.height - focusCircleSize.height)
-            updatedHeight = max(updatedHeight, 0.0)
-            updatedFocusContainerFrame.origin.y = initialFrame.origin.y + (initialFrame.height - updatedHeight)
-            updatedFocusContainerFrame.size.height = updatedHeight
-            focusCircleContainerNode.frame = updatedFocusContainerFrame
+        let focusCircleTargetFrame = CGRect(
+            origin: CGPoint(
+                x: focusCircleFrameAtTheStartOfRevealTransition.origin.x,
+                y: (Self.archiveCoverScrollHeight - focusCircleSize.height) / 2.0 + 4 // magic number to correct animation
+            ),
+            size: focusCircleSize
+        )
+        let focusCircleFrame = CGRect.interpolatedRect(
+            from: focusCircleFrameAtTheStartOfRevealTransition,
+            to: focusCircleTargetFrame,
+            with: progress
+        )
+        focusCircleNode.frame = focusCircleFrame
 
-            if focusContainerProgress >= 1.0 {
-                focusCircleContainerNode.alpha = 0.0 - progress
-            }
-        }
+        // MARK: - Interpolations / archiveCoverFocusAnimationNode
 
-        if progress >= 1.0 {
-            isTransitioningToArchiveReveal = false
-            circleContainerFrameAtTheStartOfRevealTransition = nil
-        }
+        archiveCoverFocusAnimationNode.setProgress(progress)
+
+        // MARK: - Interpolations / releaseToRevealWrapperNode
+
+        let releaseToRevealHeightBottomInset = releaseToRevealWrapperMaskNode.frame.size.height + verticalInset
+        let releaseToRevealWrapperNodeFrame = CGRect(
+            origin: CGPoint(
+                x: releaseToRevealWrapperMaskNode.frame.origin.x,
+                y: CGFloat.interpolatedValue(
+                    from: frameAtTheStartOfRevealTransition.size.height - releaseToRevealHeightBottomInset,
+                    to: Self.archiveCoverScrollHeight - releaseToRevealHeightBottomInset,
+                    with: progress
+                )
+            ),
+            size: releaseToRevealWrapperMaskNode.frame.size
+        )
+        releaseToRevealWrapperMaskNode.frame = releaseToRevealWrapperNodeFrame
+
+        releaseToRevealWrapperNode.alpha = 1.0 - cubicProgress
+
+        // MARK: - Finish transition & reset
+
         CATransaction.setDisableActions(false)
+    }
+
+    // NOTE: Formula taken from
+    // https://easings.net/#easeOutCubic
+    private func easeOutCubic(x: CGFloat) -> CGFloat {
+        return 1 - pow(1 - x, 3)
     }
 }
 
 private final class LinearGradientNode: ASDisplayNode {
     private let gradientLayer: CAGradientLayer = {
         let layer = CAGradientLayer()
-        layer.anchorPoint = CGPoint()
         layer.startPoint = .zero
         layer.endPoint = CGPoint(x: 1.0, y: 0.0)
         return layer
@@ -509,6 +624,23 @@ private final class LinearGradientNode: ASDisplayNode {
         CATransaction.setDisableActions(true)
         gradientLayer.frame = CGRect(origin: .zero, size: bounds.size)
         CATransaction.setDisableActions(false)
+    }
+}
+
+private extension CGRect {
+    static func interpolatedRect(from: CGRect, to: CGRect, with progress: CGFloat) -> CGRect {
+        return CGRect(
+            x: CGFloat.interpolatedValue(from: from.origin.x, to: to.origin.x, with: progress),
+            y: CGFloat.interpolatedValue(from: from.origin.y, to: to.origin.y, with: progress),
+            width: CGFloat.interpolatedValue(from: from.size.width, to: to.size.width, with: progress),
+            height: CGFloat.interpolatedValue(from: from.size.height, to: to.size.height, with: progress)
+        )
+    }
+}
+
+private extension CGFloat {
+    static func interpolatedValue(from: CGFloat, to: CGFloat, with progress: CGFloat) -> CGFloat {
+        return from + progress * (to - from)
     }
 }
 

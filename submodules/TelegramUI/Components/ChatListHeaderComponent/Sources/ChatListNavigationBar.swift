@@ -367,7 +367,6 @@ public final class ChatListNavigationBar: Component {
                 visibleSize.height = currentLayout.size.height
                 overflowHeight += ChatListArchiveCoverNode.archiveCoverScrollHeight
             }
-            print("\nS = \(ceil(clippedScrollOffset)),\tLH = \(ceil(currentLayout.size.height)),\tVH = \(ceil(visibleSize.height)),\tOH = \(ceil(overflowHeight))")
 
             // MARK: - Archive cover height
 
