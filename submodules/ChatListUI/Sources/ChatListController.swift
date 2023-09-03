@@ -155,7 +155,9 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
     }
     
     var searchTabsNode: SparseNode?
-    
+
+    var archiveCoverNode: ASDisplayNode?
+
     private var hasDownloads: Bool = false
     private var activeDownloadsDisposable: Disposable?
     private var clearUnseenDownloadsTimer: SwiftSignalKit.Timer?

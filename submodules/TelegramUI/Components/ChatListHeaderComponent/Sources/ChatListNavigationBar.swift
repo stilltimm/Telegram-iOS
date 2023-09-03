@@ -207,6 +207,9 @@ public final class ChatListNavigationBar: Component {
         private var currentOverscrollAllowedOrOverscrollIsVisible: Bool {
             return currentAllowOverscrollItemsExpansion || (currentOverscrollHeight > 0.0)
         }
+        public var currentOverscrollAllowedAndOverscrollIsVisible: Bool {
+            return currentAllowOverscrollItemsExpansion && (currentOverscrollHeight > 0.0)
+        }
         public private(set) var clippedScrollOffset: CGFloat?
         
         public var deferScrollApplication: Bool = false
@@ -216,7 +219,7 @@ public final class ChatListNavigationBar: Component {
         
         private var tabsNode: ASDisplayNode?
         private var tabsNodeIsSearch: Bool = false
-        private var archiveCoverNode: ASDisplayNode?
+        public private(set) var archiveCoverNode: ASDisplayNode?
         private weak var disappearingTabsView: UIView?
         private var disappearingTabsViewSearch: Bool = false
         
@@ -305,14 +308,24 @@ public final class ChatListNavigationBar: Component {
             )
             // NOTE: This check is added to prevent jumping when rapidly scrolling close to the top
             let maximumDelta = ChatListNavigationBar.maximumOverscrollHeightDeltaToPreventJump
+            var currentOverscrollHeightChanged = false
             if self.currentOverscrollHeight == 0.0, overflowHeight >= maximumDelta {
                 overflowHeight = 0.0
             } else {
+                currentOverscrollHeightChanged = overflowHeight != self.currentOverscrollHeight
                 self.currentOverscrollHeight = overflowHeight
             }
 
-            if !forceUpdate, component.isMainTab {
-                let contentHeight = expectedContentHeight(for: component, overflowHeight: overflowHeight)
+            var isTransitioningToArchiveReveal = false
+            if
+                !forceUpdate,
+                component.isMainTab,
+                let archiveCoverNode = component.archiveCoverNode  as? ChatListArchiveCoverNode,
+                archiveCoverNode.isTransitioningToArchiveReveal
+            {
+                isTransitioningToArchiveReveal = true
+                let contentHeight = expectedContentHeight(for: component)
+//                contentHeight -= ChatListArchiveCoverNode.archiveCoverScrollHeight
                 self.currentLayout = CurrentLayout(
                     size: CGSize(
                         width: currentLayoutWidth,
@@ -345,14 +358,23 @@ public final class ChatListNavigationBar: Component {
             self.hasDeferredScrollOffset = false
             self.clippedScrollOffset = clippedScrollOffset
             
-            let visibleSize = CGSize(
+            var visibleSize = CGSize(
                 width: currentLayout.size.width,
                 height: max(0.0, currentLayout.size.height - clippedScrollOffset)
             )
+            visibleSize.height -= overflowHeight
+            if isTransitioningToArchiveReveal {
+                visibleSize.height = currentLayout.size.height
+                overflowHeight += ChatListArchiveCoverNode.archiveCoverScrollHeight
+            }
+            print("\nS = \(ceil(clippedScrollOffset)),\tLH = \(ceil(currentLayout.size.height)),\tVH = \(ceil(visibleSize.height)),\tOH = \(ceil(overflowHeight))")
 
             // MARK: - Archive cover height
 
-            let archiveCoverHeight = overflowHeight
+            var archiveCoverHeight = overflowHeight
+            if isTransitioningToArchiveReveal {
+                archiveCoverHeight = max(ChatListArchiveCoverNode.archiveCoverScrollHeight, archiveCoverHeight)
+            }
             let previousHeight = self.separatorLayer.position.y
 
             // MARK: - Background
@@ -634,7 +656,10 @@ public final class ChatListNavigationBar: Component {
 
             // MARK: - Accessory Panel
             
-            var accessoryPanelContainerFrame = CGRect(origin: CGPoint(x: 0.0, y: visibleSize.height), size: CGSize(width: visibleSize.width, height: component.accessoryPanelContainerHeight))
+            var accessoryPanelContainerFrame = CGRect(
+                origin: CGPoint(x: 0.0, y: visibleSize.height),
+                size: CGSize(width: visibleSize.width, height: component.accessoryPanelContainerHeight)
+            )
             if !component.isSearchActive {
                 accessoryPanelContainerFrame.origin.y -= component.accessoryPanelContainerHeight
             }
@@ -708,7 +733,10 @@ public final class ChatListNavigationBar: Component {
                     addSubview(archiveCoverNode.view)
                 }
 
-                if let mappedArchiveCoverNode = archiveCoverNode as? ChatListArchiveCoverNode {
+                if
+                    currentOverscrollHeightChanged,
+                    let mappedArchiveCoverNode = archiveCoverNode as? ChatListArchiveCoverNode
+                {
                     mappedArchiveCoverNode.updateLayout(
                         size: archiveCoverFrame.size,
                         leftInset: component.sideInset,
@@ -848,10 +876,13 @@ public final class ChatListNavigationBar: Component {
             } else {
                 self.currentOverscrollHeight = overflowHeight
             }
-            let contentHeight = expectedContentHeight(
-                for: component,
-                overflowHeight: overflowHeight
-            )
+            let contentHeight = expectedContentHeight(for: component)
+//            if
+//                let archiveCoverNode = component.archiveCoverNode as? ChatListArchiveCoverNode,
+//                archiveCoverNode.isTransitioningToArchiveReveal
+//            {
+//                contentHeight -= overflowHeight
+//            }
             
             let size = CGSize(width: availableSize.width, height: contentHeight)
             self.currentLayout = CurrentLayout(size: size)
@@ -873,10 +904,7 @@ public final class ChatListNavigationBar: Component {
             return size
         }
 
-        private func expectedContentHeight(
-            for component: ChatListNavigationBar,
-            overflowHeight: CGFloat?
-        ) -> CGFloat {
+        private func expectedContentHeight(for component: ChatListNavigationBar) -> CGFloat {
             var contentHeight = component.statusBarHeight
 
             if component.statusBarHeight >= 1.0 {
@@ -900,10 +928,6 @@ public final class ChatListNavigationBar: Component {
                 contentHeight += component.accessoryPanelContainerHeight
             }
 
-            if let overflowHeight {
-                contentHeight -= overflowHeight
-            }
-
             return contentHeight
         }
 
@@ -916,7 +940,7 @@ public final class ChatListNavigationBar: Component {
                 allowOverscrollItemExpansion,
                 component.isMainTab,
                 !component.isSearchActive,
-                component.archiveCoverNode != nil,
+                let archiveCoverNode = component.archiveCoverNode as? ChatListArchiveCoverNode,
                 let contentOffset,
                 contentOffset < 0.0
             else {
@@ -924,7 +948,7 @@ public final class ChatListNavigationBar: Component {
             }
 
             let reversedOffset = -contentOffset
-            let result = max(0, reversedOffset)
+            var result = max(0, reversedOffset)
 
             if
                 let stories = component.storySubscriptions?.items,
@@ -935,7 +959,11 @@ public final class ChatListNavigationBar: Component {
                 }
 
                 let storiesAdjustedOffset = reversedOffset - ChatListNavigationBar.storiesScrollHeight
-                return storiesAdjustedOffset * 0.80
+                result = storiesAdjustedOffset * 0.80
+            }
+
+            if archiveCoverNode.isTransitioningToArchiveReveal {
+                result = max(result, ChatListArchiveCoverNode.archiveCoverScrollHeight)
             }
 
             return result

@@ -246,9 +246,9 @@ public struct ChatListNodeState: Equatable {
 
         var isRevealed: Bool {
             switch self {
-            case .hidden:
+            case .hidden, .temporaryRevealedWhileDragging:
                 return false
-            case .temporaryRevealedWhileDragging, .temporaryRevealed, .revealed:
+            case .temporaryRevealed, .revealed:
                 return true
             }
         }
@@ -2417,8 +2417,21 @@ public final class ChatListNode: ListView {
                     return nil
                 }
             }
+
+            if state.hiddenItemsState == .temporaryRevealed && previousState.hiddenItemsState == .hidden {
+                disableAnimations = true
+            }
             
-            return preparedChatListNodeViewTransition(from: previousView, to: processedView, reason: reason, previewing: previewing, disableAnimations: disableAnimations, account: context.account, scrollPosition: updatedScrollPosition, searchMode: searchMode)
+            return preparedChatListNodeViewTransition(
+                from: previousView,
+                to: processedView,
+                reason: reason,
+                previewing: previewing,
+                disableAnimations: disableAnimations,
+                account: context.account,
+                scrollPosition: updatedScrollPosition,
+                searchMode: searchMode
+            )
             |> map({ mappedChatListNodeViewListTransition(context: context, nodeInteraction: nodeInteraction, location: location, filterData: filterData, mode: mode, isPeerEnabled: isPeerEnabled, transition: $0) })
             |> runOn(prepareOnMainQueue ? Queue.mainQueue() : viewProcessingQueue)
         }
@@ -2936,26 +2949,30 @@ public final class ChatListNode: ListView {
     }
     
     func hasItemsToBeRevealed() -> Bool {
-        if self.currentState.hiddenItemsState == .temporaryRevealed {
+        guard
+            self.currentState.hiddenItemsState != .temporaryRevealed,
+            self.currentState.hiddenItemsState != .revealed
+        else {
             return false
         }
-        var isHiddenItemVisible = false
+
+        var hasHiddenItem = false
         self.forEachItemNode({ itemNode in
             if let itemNode = itemNode as? ChatListItemNode, let item = itemNode.item {
                 if case let .peer(peerData) = item.content, let threadInfo = peerData.threadInfo {
                     if threadInfo.isHidden {
-                        isHiddenItemVisible = true
+                        hasHiddenItem = true
                     }
                 }
                 if case let .groupReference(groupReference) = item.content {
                     if groupReference.hiddenByDefault {
-                        isHiddenItemVisible = true
+                        hasHiddenItem = true
                     }
                 }
             }
         })
         
-        return isHiddenItemVisible
+        return hasHiddenItem
     }
     
     func revealScrollHiddenItem() {
@@ -2987,35 +3004,8 @@ public final class ChatListNode: ListView {
         }
     }
 
-    func scrollHiddenItemsTemporaryRevealedWhileDragging() -> Bool {
-        return self.currentState.hiddenItemsState == .temporaryRevealedWhileDragging
-    }
-
-    func setScrollHiddenItemState(isDragging: Bool, hidden: Bool) {
-        let targetState: ChatListNodeState.HiddenItemsState
-        if hidden {
-            targetState = .hidden
-        } else {
-            targetState = isDragging ? .temporaryRevealedWhileDragging : .temporaryRevealed
-        }
-
-        if self.currentState.hiddenItemsState != targetState {
-            if self.hapticFeedback == nil {
-                self.hapticFeedback = HapticFeedback()
-            }
-            if isDragging {
-                if hidden {
-                    self.hapticFeedback?.tap()
-                } else {
-                    self.hapticFeedback?.impact(.medium)
-                }
-            }
-            self.updateState { state in
-                var state = state
-                state.hiddenItemsState = targetState
-                return state
-            }
-        }
+    func hiddenItemsState() -> ChatListNodeState.HiddenItemsState {
+        return self.currentState.hiddenItemsState
     }
     
     private func pollFilterUpdates() {

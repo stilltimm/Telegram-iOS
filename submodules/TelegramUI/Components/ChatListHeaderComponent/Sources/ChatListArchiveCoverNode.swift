@@ -89,6 +89,9 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
 
     private var hasPassedThreshold: Bool = false
 
+    public private(set) var isTransitioningToArchiveReveal: Bool = false
+    private var circleContainerFrameAtTheStartOfRevealTransition: CGRect?
+
     // MARK: - Lifecycle
 
     override public func didLoad() {
@@ -134,9 +137,13 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
 
     override public func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         let spec = ASLayoutSpec()
+        var height: CGFloat = constrainedSize.max.height
+        if isTransitioningToArchiveReveal {
+            height = max(ChatListArchiveCoverNode.archiveCoverScrollHeight, constrainedSize.max.height)
+        }
         spec.style.preferredSize = CGSize(
             width: constrainedSize.max.width,
-            height: constrainedSize.max.height
+            height: height
         )
         return spec
     }
@@ -147,9 +154,14 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         rightInset: CGFloat,
         transition: ContainedViewLayoutTransition
     ) {
+        var updatedSize: CGSize = size
+        if isTransitioningToArchiveReveal {
+            updatedSize.height = max(size.height, Self.archiveCoverScrollHeight)
+        }
+
         // MARK: - Progress
 
-        let fractionComplete: CGFloat = size.height / Self.archiveCoverScrollHeight
+        let fractionComplete: CGFloat = updatedSize.height / Self.archiveCoverScrollHeight
         let hasPassedThreshold: Bool
         if fractionComplete > 1.0 {
             hasPassedThreshold = true
@@ -159,7 +171,7 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
             hasPassedThreshold = self.hasPassedThreshold
         }
 
-        let constrainedLabelSize = CGSize(width: size.width, height: 100)
+        let constrainedLabelSize = CGSize(width: updatedSize.width, height: 100)
 
         // MARK: - Pull down to reveal hint
 
@@ -207,24 +219,24 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
 
         // MARK: - Frame updates
 
-        let backgroundFrame = CGRect(origin: .zero, size: size)
+        let backgroundFrame = CGRect(origin: .zero, size: updatedSize)
 
         let focusCircleOriginX = leftInset + avatarLeftInset + (avatarSize.width - focusCircleSize.width) / 2
         let focusCircleContainerFrame = CGRect(
             origin: CGPoint(
                 x: focusCircleOriginX,
-                y: min(verticalInset, size.height - focusCircleSize.height - verticalInset)
+                y: min(verticalInset, updatedSize.height - focusCircleSize.height - verticalInset)
             ),
             size: CGSize(
                 width: focusCircleSize.width,
-                height: max(size.height - 2 * verticalInset, focusCircleSize.height)
+                height: max(updatedSize.height - 2 * verticalInset, focusCircleSize.height)
             )
         )
 
         let focusCircleFrame = CGRect(
             origin: CGPoint(
                 x: focusCircleOriginX,
-                y: size.height - focusCircleSize.height - verticalInset
+                y: updatedSize.height - focusCircleSize.height - verticalInset
             ),
             size: focusCircleSize
         )
@@ -239,8 +251,8 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
 
         let pullDownToRevealWrapperFrame = CGRect(
             origin: CGPoint(
-                x: (size.width - pullDownToRevealLabelSize.width) / 2,
-                y: size.height - verticalInset - pullDownToRevealLabelSize.height
+                x: (updatedSize.width - pullDownToRevealLabelSize.width) / 2,
+                y: updatedSize.height - verticalInset - pullDownToRevealLabelSize.height
             ),
             size: pullDownToRevealLabelSize
         )
@@ -250,10 +262,10 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         let releaseToRevealMaskFrame = CGRect(
             origin: CGPoint(
                 x: focusCircleFrame.midX,
-                y: size.height - verticalInset - releaseToRevealLabelSize.height
+                y: updatedSize.height - verticalInset - releaseToRevealLabelSize.height
             ),
             size: CGSize(
-                width: size.width - focusCircleFrame.midX,
+                width: updatedSize.width - focusCircleFrame.midX,
                 height: releaseToRevealLabelSize.height
             )
         )
@@ -261,7 +273,7 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         releaseToRevealWrapperFrame.origin = .zero
         let releaseToRevealHintFrame = CGRect(
             origin: CGPoint(
-                x: (size.width - releaseToRevealLabelSize.width) / 2 - focusCircleFrame.midX,
+                x: (updatedSize.width - releaseToRevealLabelSize.width) / 2 - focusCircleFrame.midX,
                 y: 0
             ),
             size: releaseToRevealLabelSize
@@ -270,6 +282,7 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         // MARK: - Update Frames
 
         backgroundNode.frame = backgroundFrame
+        backgroundNode.view.alpha = 0.5
         focusBackgroundNode.frame = focusCircleFrame
 
         pullDownToRevealWrapperNode.frame = pullDownToRevealWrapperFrame
@@ -288,11 +301,12 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
         if hasPassedThreshold != self.hasPassedThreshold {
             self.hasPassedThreshold = hasPassedThreshold
 
-            let focusBackgroundSizeFactor = 2 * size.width / focusCircleSize.width
-            let pullDownToRevealTranslation = size.width - pullDownToRevealHintFrame.minX
+            let focusBackgroundSizeFactor = 2 * updatedSize.width / focusCircleSize.width
+            let pullDownToRevealTranslation = updatedSize.width - pullDownToRevealHintFrame.minX
             let releaseToRevealTranslation = -releaseToRevealHintFrame.maxX
+            CATransaction.setDisableActions(true)
             if hasPassedThreshold {
-                focusBackgroundNode.alpha = 1.0
+                focusBackgroundNode.alpha = 0.5
                 pullDownToRevealWrapperNode.view.transform = .identity
                 releaseToRevealWrapperNode.view.transform = CGAffineTransform(
                     translationX: releaseToRevealTranslation,
@@ -304,39 +318,118 @@ public final class ChatListArchiveCoverNode: ASDisplayNode {
                     y: 0.0
                 )
                 releaseToRevealWrapperNode.view.transform = .identity
+                focusBackgroundNode.cornerRadius = focusCircleSize.width / 2
             }
+            CATransaction.setDisableActions(false)
 
-            UIView.animate(
-                withDuration: 0.4,
-                delay: 0.0,
-                usingSpringWithDamping: 0.78,
-                initialSpringVelocity: 0.0,
-                options: [.beginFromCurrentState, .allowAnimatedContent, .allowUserInteraction]
-            ) {
-                self.focusBackgroundNode.view.transform = hasPassedThreshold ? CGAffineTransform(
-                    scaleX: focusBackgroundSizeFactor,
-                    y: focusBackgroundSizeFactor
-                ) : .identity
-                self.focusCircleNode.view.transform = hasPassedThreshold ? CGAffineTransform(
-                    rotationAngle: -2 * CGFloat.pi
-                ) : CGAffineTransform(
-                    rotationAngle: CGFloat.pi
-                )
-                self.archiveCoverFocusAnimationNode.view.alpha = hasPassedThreshold ? 1.0 : 0.0
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    return
+                }
 
-                self.pullDownToRevealWrapperNode.view.alpha = hasPassedThreshold ? 0.0 : 1.0
-                self.releaseToRevealWrapperNode.view.alpha = hasPassedThreshold ? 1.0 : 0.0
+                UIView.animate(
+                    withDuration: 0.4,
+                    delay: 0.0,
+                    usingSpringWithDamping: 0.78,
+                    initialSpringVelocity: 0.0,
+                    options: [.beginFromCurrentState, .allowAnimatedContent, .allowUserInteraction]
+                ) {
+                    self.focusBackgroundNode.view.transform = hasPassedThreshold ? CGAffineTransform(
+                        scaleX: focusBackgroundSizeFactor,
+                        y: focusBackgroundSizeFactor
+                    ) : .identity
+                    self.focusCircleNode.view.transform = hasPassedThreshold ? CGAffineTransform(
+                        rotationAngle: -2 * CGFloat.pi
+                    ) : CGAffineTransform(
+                        rotationAngle: CGFloat.pi
+                    )
+                    self.archiveCoverFocusAnimationNode.view.alpha = hasPassedThreshold ? 1.0 : 0.0
 
-                self.pullDownToRevealWrapperNode.view.transform = hasPassedThreshold ? CGAffineTransform(
-                    translationX: pullDownToRevealTranslation,
-                    y: 0.0
-                ) : .identity
-                self.releaseToRevealWrapperNode.view.transform = hasPassedThreshold ? .identity : CGAffineTransform(
-                    translationX: releaseToRevealTranslation,
-                    y: 0.0
-                )
+                    self.pullDownToRevealWrapperNode.view.alpha = hasPassedThreshold ? 0.0 : 1.0
+                    self.releaseToRevealWrapperNode.view.alpha = hasPassedThreshold ? 1.0 : 0.0
+
+                    self.pullDownToRevealWrapperNode.view.transform = hasPassedThreshold ? CGAffineTransform(
+                        translationX: pullDownToRevealTranslation,
+                        y: 0.0
+                    ) : .identity
+                    self.releaseToRevealWrapperNode.view.transform = hasPassedThreshold ? .identity : CGAffineTransform(
+                        translationX: releaseToRevealTranslation,
+                        y: 0.0
+                    )
+                } completion : { [weak self] completed in
+                    guard let strongSelf = self, completed else { return }
+                    if hasPassedThreshold {
+                        strongSelf.focusBackgroundNode.cornerRadius = 0.0
+                    } else {
+                        strongSelf.focusBackgroundNode.cornerRadius = strongSelf.focusCircleSize.width / 2
+                    }
+                }
             }
         }
+    }
+
+    public func transitionToArchiveReveal() {
+        guard self.hasPassedThreshold else {
+            return
+        }
+
+        self.isTransitioningToArchiveReveal = true
+    }
+
+    public func applyTransitionToArchiveRevealProgress(progress: CGFloat?) {
+        let initialFocusBackgroundSizeFactor = 2 * bounds.width / focusCircleSize.width
+        guard let progress else {
+            backgroundNode.alpha = 0.0
+
+            pullDownToRevealWrapperNode.alpha = 0.0
+            pullDownToRevealWrapperNode.view.layer.removeAllAnimations()
+            pullDownToRevealWrapperNode.view.transform = .identity
+
+            releaseToRevealWrapperNode.alpha = 1.0
+            releaseToRevealWrapperNode.view.layer.removeAllAnimations()
+            releaseToRevealWrapperNode.view.transform = .identity
+
+            focusBackgroundNode.cornerRadius = focusCircleSize.width / 2
+            focusBackgroundNode.view.layer.removeAllAnimations()
+            focusBackgroundNode.view.transform = CGAffineTransform(
+                scaleX: initialFocusBackgroundSizeFactor,
+                y: initialFocusBackgroundSizeFactor
+            )
+
+            circleContainerFrameAtTheStartOfRevealTransition = focusCircleContainerNode.frame
+            return
+        }
+
+        CATransaction.setDisableActions(true)
+        let focusBackgroundSizeTargetFactor = avatarSize.width / focusCircleSize.width
+        let focusBackgroundSizeFactor = focusBackgroundSizeTargetFactor + (1.0 - progress) * (initialFocusBackgroundSizeFactor - focusBackgroundSizeTargetFactor)
+        print("Progress = \(ceil(progress * 100.0)),\tFactor = \(ceil(1000.0 * focusBackgroundSizeFactor) / 1000.0)")
+        focusBackgroundNode.view.transform = CGAffineTransform(
+            scaleX: focusBackgroundSizeFactor,
+            y: focusBackgroundSizeFactor
+        )
+
+        releaseToRevealWrapperNode.alpha = 1.0 - progress
+
+        if let initialFrame = circleContainerFrameAtTheStartOfRevealTransition {
+            let focusContainerProgress = min(1.0, progress * 2.0)
+            var updatedFocusContainerFrame = initialFrame
+            var updatedHeight = focusCircleSize.height + (1.0 - focusContainerProgress) * (updatedFocusContainerFrame.height - focusCircleSize.height)
+            updatedHeight = max(updatedHeight, 0.0)
+            updatedFocusContainerFrame.origin.y = initialFrame.origin.y + (initialFrame.height - updatedHeight)
+            updatedFocusContainerFrame.size.height = updatedHeight
+            focusCircleContainerNode.frame = updatedFocusContainerFrame
+
+            if focusContainerProgress >= 1.0 {
+                focusCircleContainerNode.alpha = 0.0 - progress
+            }
+        }
+
+        if progress >= 1.0 {
+            isTransitioningToArchiveReveal = false
+            circleContainerFrameAtTheStartOfRevealTransition = nil
+        }
+        CATransaction.setDisableActions(false)
     }
 }
 
